@@ -46,33 +46,43 @@ def score_sample_size(total_trades: int) -> int:
 
 
 # Float noise (e.g. expectancy 2.2e-16 for 40/3/2, profit factor 1.0000000000000002)
-# must not turn a break-even strategy into a passing one. Cancellation error grows
-# with input magnitude, so no fixed tolerance is safe: the sign is computed exactly
-# in decimal from the inputs as the user wrote them. Reported values stay raw floats.
+# must not turn a break-even strategy into a passing one, and cancellation error grows
+# with input magnitude (30/3.5e9/1.5e9 gives 1.2e-07; 10.1/8.99e16/1.01e16 gives -2.0
+# instead of +0.222). No fixed tolerance is safe, so expectancy and profit factor are
+# computed exactly in decimal from the inputs as the user wrote them, then rounded once.
+# Sign, thresholds and reported values therefore all agree.
 def _exact(value: float) -> Decimal:
     return Decimal(repr(float(value)))
 
 
-def expectancy_sign(win_rate: float, avg_win_pct: float, avg_loss_pct: float) -> int:
-    """Exact sign (-1, 0, 1) of win_rate * avg_win - (100 - win_rate) * avg_loss."""
+def _exact_components(
+    win_rate: float, avg_win_pct: float, avg_loss_pct: float
+) -> tuple[Decimal, Decimal]:
+    """Exact (win_rate * avg_win, (100 - win_rate) * avg_loss), both scaled by 100."""
     wr = _exact(win_rate)
     with localcontext() as ctx:
         ctx.prec = 100
-        value = wr * _exact(avg_win_pct) - (Decimal(100) - wr) * _exact(avg_loss_pct)
-    return (value > 0) - (value < 0)
+        return wr * _exact(avg_win_pct), (Decimal(100) - wr) * _exact(avg_loss_pct)
+
+
+def expectancy_sign(win_rate: float, avg_win_pct: float, avg_loss_pct: float) -> int:
+    """Exact sign (-1, 0, 1) of win_rate * avg_win - (100 - win_rate) * avg_loss."""
+    profit, loss = _exact_components(win_rate, avg_win_pct, avg_loss_pct)
+    return (profit > loss) - (profit < loss)
 
 
 def calc_profit_factor(win_rate: float, avg_win_pct: float, avg_loss_pct: float) -> float:
     """Calculate profit factor: (win_rate * avg_win) / (loss_rate * avg_loss).
 
-    Returns infinity for positive gross profit with no losses, or zero for 0/0.
+    Returns infinity for positive gross profit with no losses (or a ratio beyond
+    float range), or zero for 0/0.
     """
-    wr = win_rate / 100.0
-    profit_component = wr * avg_win_pct
-    loss_component = (1 - wr) * avg_loss_pct
-    if loss_component == 0:
-        return float("inf") if profit_component > 0 else 0.0
-    return profit_component / loss_component
+    profit, loss = _exact_components(win_rate, avg_win_pct, avg_loss_pct)
+    if loss == 0:
+        return float("inf") if profit > 0 else 0.0
+    with localcontext() as ctx:
+        ctx.prec = 100
+        return float(profit / loss)
 
 
 def calc_expectancy(win_rate: float, avg_win_pct: float, avg_loss_pct: float) -> float:
@@ -80,8 +90,10 @@ def calc_expectancy(win_rate: float, avg_win_pct: float, avg_loss_pct: float) ->
 
     E = win_rate * avg_win - loss_rate * avg_loss
     """
-    wr = win_rate / 100.0
-    return wr * avg_win_pct - (1 - wr) * avg_loss_pct
+    profit, loss = _exact_components(win_rate, avg_win_pct, avg_loss_pct)
+    with localcontext() as ctx:
+        ctx.prec = 100
+        return float((profit - loss) / 100)
 
 
 def score_expectancy(win_rate: float, avg_win_pct: float, avg_loss_pct: float) -> int:

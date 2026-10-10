@@ -31,7 +31,7 @@
         "score": 20
       }
     ],
-    "expectancy": -2.9562999999999997,
+    "expectancy": -2.9563,
     "inputs": {
       "avg_loss_pct": 3.0,
       "avg_win_pct": 6.5,

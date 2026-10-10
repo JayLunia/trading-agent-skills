@@ -40,7 +40,7 @@
     "win_rate": 58.0,
     "years_tested": 6
   },
-  "profit_factor": 3.305230288836846,
+  "profit_factor": 3.3052302888368463,
   "profit_factor_status": "FINITE",
   "provenance": {
     "adapter_bound_source_sha256": {

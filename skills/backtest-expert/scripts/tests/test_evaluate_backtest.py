@@ -690,6 +690,29 @@ class TestDecisionGates:
         )
         assert "negative_expectancy" in result["blocking_reasons"]
 
+    def test_large_magnitude_positive_expectancy_scores_consistently(self, evaluator_module):
+        # Exact numerator is +22.2 (expectancy +0.222%), but float cancellation gives -2.0.
+        # Scores, decision and reported values must all follow the exact value.
+        win_rate, avg_win, avg_loss = 10.1, 8.990000000000002e16, 1.0100000000000002e16
+        result = evaluator_module.evaluate(
+            **self.inputs(
+                total_trades=500,
+                win_rate=win_rate,
+                avg_win_pct=avg_win,
+                avg_loss_pct=avg_loss,
+                num_parameters=3,
+            )
+        )
+        dims = {d["name"]: d["score"] for d in result["dimensions"]}
+        assert all(0 <= score <= 20 for score in dims.values())
+        assert dims["Expectancy"] == 7
+        assert result["expectancy"] == pytest.approx(0.222)
+        # Exact PF is 1 + 2.5e-17, which rounds to 1.0; it must never fall below 1.
+        assert result["profit_factor"] >= 1.0
+        assert "negative_expectancy" not in result["blocking_reasons"]
+        assert "zero_expectancy" not in result["blocking_reasons"]
+        assert not any(flag["id"] == "negative_expectancy" for flag in result["red_flags"])
+
     @pytest.mark.parametrize(
         "overrides",
         [
