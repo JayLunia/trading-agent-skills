@@ -5,6 +5,6 @@ source_artifacts:
   - backtest_validation
 source_sha256:
   postmortem_findings: 3272ce966dcbad845619cfbbf53afd3e616286b00d2bf785544862a84e9c7c18  # pragma: allowlist secret
-  backtest_validation: 658776ce0bef21500192ba2d0fe25a872755d303c575158c97488aca7182b0c3  # pragma: allowlist secret
+  backtest_validation: 365d8714a6319fd1158ed87f2022ab120680dd7563d291abac1ffd597ad119de  # pragma: allowlist secret
 decision: research_rule
 lesson_text: Keep the 10-EMA trail as a research rule with the evaluated caveats; do not treat this fictional sample as live validation.

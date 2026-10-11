@@ -1,4 +1,6 @@
 {
+  "blocking_reasons": [],
+  "decision": "DEPLOY",
   "dimensions": [
     {
       "max_score": 20,
@@ -30,6 +32,7 @@
   "inputs": {
     "avg_loss_pct": 6.1,
     "avg_win_pct": 14.6,
+    "max_drawdown_limit": 50.0,
     "max_drawdown_pct": 18.0,
     "num_parameters": 4,
     "slippage_tested": true,
@@ -47,6 +50,7 @@
     "metrics_source": "bundled fictional aggregate metrics"
   },
   "red_flags": [],
+  "score_verdict": "Deploy",
   "total_score": 85,
   "verdict": "Deploy"
 }

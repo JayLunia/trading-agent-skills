@@ -1,5 +1,12 @@
 {
   "evaluation": {
+    "blocking_reasons": [
+      {
+        "id": "negative_expectancy",
+        "message": "Negative expectancy (-2.956% per trade) — strategy loses money on average; adoption blocked."
+      }
+    ],
+    "decision": "REJECT",
     "dimensions": [
       {
         "max_score": 20,
@@ -31,6 +38,7 @@
     "inputs": {
       "avg_loss_pct": 3.0,
       "avg_win_pct": 6.5,
+      "max_drawdown_limit": 50.0,
       "max_drawdown_pct": 18.0,
       "num_parameters": 4,
       "slippage_tested": true,
@@ -46,8 +54,9 @@
         "severity": "high"
       }
     ],
+    "score_verdict": "Refine",
     "total_score": 59,
-    "verdict": "Refine"
+    "verdict": "Reject"
   },
   "hypothesis_id": "confirmation-pivot-entry",
   "schema_version": 1,
