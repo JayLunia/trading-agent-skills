@@ -22,6 +22,32 @@ from generate_report import (
     load_earnings_data,
 )
 
+
+def test_generated_client_starts_with_zero_api_usage():
+    """A fresh calendar run must not claim provider calls or cached data."""
+    client = _FMPClient(api_key="test-key")
+    assert client.get_api_stats() == {
+        "cache_entries": 0,
+        "api_calls_made": 0,
+        "rate_limit_reached": False,
+    }
+
+
+def test_generated_client_caches_report_time_calendar(monkeypatch):
+    client = _FMPClient(api_key="test-key")
+    calls = []
+
+    def fake_get(url, params):
+        calls.append((url, params))
+        return [{"symbol": "AAPL", "time": "amc"}]
+
+    monkeypatch.setattr(client, "_rate_limited_get", fake_get)
+    first = client.get_earnings_calendar("2026-10-12", "2026-10-13")
+    assert client.get_earnings_calendar("2026-10-12", "2026-10-13") is first
+    assert len(calls) == 1
+    assert calls[0][1]["includeReportTimes"] == "true"
+
+
 # ── Fixtures ──────────────────────────────────────────────────────────
 
 
