@@ -27,7 +27,7 @@ from aggregate_signals import (
     load_config,
     normalize_direction,
     normalize_score,
-    normalize_score_auto,
+    parse_raw_score,
 )
 
 
@@ -394,7 +394,7 @@ class TestExtractSignals:
                 ],
             }
         ]
-        signals = extract_signals_from_edge_candidates(data)
+        signals, invalids = extract_signals_from_edge_candidates(data)
         assert len(signals) == 1
         assert signals[0]["skill"] == "edge_candidate_agent"
         assert signals[0]["signal_ref"] == "T001"
@@ -416,7 +416,7 @@ class TestExtractSignals:
                 ],
             }
         ]
-        signals = extract_signals_from_edge_candidates(data)
+        signals, invalids = extract_signals_from_edge_candidates(data)
         assert len(signals) == 1
         assert signals[0]["raw_score"] == pytest.approx(0.78, abs=1e-6)
         assert signals[0]["tickers"] == ["NVDA"]
@@ -439,7 +439,7 @@ class TestExtractSignals:
                 ],
             }
         ]
-        signals = extract_signals_from_concepts(data)
+        signals, invalids = extract_signals_from_concepts(data)
         assert len(signals) == 1
         assert signals[0]["signal_ref"] == "C001"
         assert signals[0]["raw_score"] == pytest.approx(0.64, abs=1e-6)
@@ -461,7 +461,7 @@ class TestExtractSignals:
                 "generated_at": "2026-03-01T10:00:00Z",
             }
         ]
-        signals = extract_signals_from_themes(data)
+        signals, invalids = extract_signals_from_themes(data)
         assert len(signals) == 1
         assert signals[0]["skill"] == "theme_detector"
         assert signals[0]["title"] == "AI Infrastructure"
@@ -485,7 +485,7 @@ class TestExtractSignals:
                 "generated_at": "2026-03-01T10:00:00Z",
             }
         ]
-        signals = extract_signals_from_themes(data)
+        signals, invalids = extract_signals_from_themes(data)
         assert len(signals) == 1
         assert signals[0]["raw_score"] == pytest.approx(0.72, abs=1e-6)
         assert signals[0]["tickers"] == ["AAPL", "MSFT"]
@@ -731,26 +731,28 @@ class TestAsTickerList:
         assert as_ticker_list(None) == []
 
 
-class TestNormalizeScoreAuto:
-    """Tests for normalize_score_auto utility."""
+class TestParseRawScoreReplacements:
+    """Replacements for former TestNormalizeScoreAuto cases (Issue #510)."""
 
     def test_zero_to_one_range(self):
-        assert normalize_score_auto(0.75) == 0.75
+        assert parse_raw_score(0.75, None) == (0.75, "valid", None)
 
-    def test_zero_to_hundred_range(self):
-        assert normalize_score_auto(85) == 0.85
+    def test_zero_to_hundred_range_is_assumed(self):
+        score, status, _ = parse_raw_score(85, None)
+        assert score == 0.85
+        assert status == "assumed_scale"
 
-    def test_over_hundred(self):
-        assert normalize_score_auto(150) == 1.0
+    def test_over_hundred_now_invalid(self):
+        assert parse_raw_score(150, None) == (None, "invalid", "out_of_range")
 
-    def test_negative(self):
-        assert normalize_score_auto(-5) == 0.0
+    def test_negative_now_invalid(self):
+        assert parse_raw_score(-5, None) == (None, "invalid", "negative")
 
     def test_none(self):
-        assert normalize_score_auto(None) == 0.0
+        assert parse_raw_score(None, None) == (0.0, "valid", None)
 
     def test_letter_grade(self):
-        assert normalize_score_auto("A") == 1.0
+        assert parse_raw_score("A", None) == (1.0, "valid", None)
 
 
 class TestHorizonBucket:
@@ -796,8 +798,513 @@ class TestIndividualTicketYAML:
                 "_source_file": "tickets/exportable/ticket_001.yaml",
             }
         ]
-        signals = extract_signals_from_edge_candidates(docs)
+        signals, invalids = extract_signals_from_edge_candidates(docs)
         assert len(signals) == 1
         assert signals[0]["tickers"] == ["NVDA"]
         assert signals[0]["raw_score"] == pytest.approx(0.885, rel=1e-2)
         assert signals[0]["direction"] == "LONG"
+
+
+class TestParseRawScore:
+    """T3/T4/T5/T10/T12: strict score parsing contract."""
+
+    def test_t3_non_finite_rejected_declared_and_undeclared(self):
+        for scale in (None, "0-1", "0-100"):
+            for value in (float("nan"), float("inf"), float("-inf")):
+                score, status, reason = parse_raw_score(value, scale)
+                assert score is None
+                assert status == "invalid"
+                assert reason == "non_finite"
+
+    def test_t3_undeclared_negative_rejected(self):
+        score, status, reason = parse_raw_score(-5, None)
+        assert score is None
+        assert status == "invalid"
+        assert reason == "negative"
+
+    def test_t4_declared_0_100_boundary_1_0_and_1_1(self):
+        assert parse_raw_score(1.0, "0-100") == (pytest.approx(0.01), "valid", None)
+        assert parse_raw_score(1.1, "0-100") == (pytest.approx(0.011), "valid", None)
+
+    def test_t4_declared_0_1_boundary_1_0_valid_1_1_rejected(self):
+        assert parse_raw_score(1.0, "0-1") == (1.0, "valid", None)
+        score, status, reason = parse_raw_score(1.1, "0-1")
+        assert (score, status, reason) == (None, "invalid", "out_of_range")
+
+    def test_t4_declared_negative_rejected(self):
+        assert parse_raw_score(-1, "0-1") == (None, "invalid", "negative")
+        assert parse_raw_score(-1, "0-100") == (None, "invalid", "negative")
+
+    def test_t5_undeclared_above_one_is_assumed_scale(self):
+        score, status, reason = parse_raw_score(1.1, None)
+        assert status == "assumed_scale"
+        assert reason is None
+        assert score == pytest.approx(0.011)
+
+    def test_t5_undeclared_at_or_below_one_is_plain_valid(self):
+        assert parse_raw_score(1.0, None) == (1.0, "valid", None)
+        assert parse_raw_score(0.75, None) == (0.75, "valid", None)
+
+    def test_t5_undeclared_over_hundred_rejected(self):
+        assert parse_raw_score(150, None) == (None, "invalid", "out_of_range")
+
+    def test_t10_declared_scale_foo_is_missing_scale(self):
+        score, status, reason = parse_raw_score(0.5, "foo")
+        assert (score, status, reason) == (None, "invalid", "missing_scale")
+        assert parse_raw_score(0.5, "") == (None, "invalid", "missing_scale")
+
+    def test_t10_absent_scale_key_is_assumed_scale(self):
+        status, reason = parse_raw_score(1.1, None)[1:]
+        assert status == "assumed_scale"
+        assert reason is None
+
+    def test_t12_letter_grades_remain_valid(self):
+        for grade, expected in (("A", 1.0), ("B", 0.8), ("C", 0.6), ("D", 0.4), ("F", 0.2)):
+            score, status, reason = parse_raw_score(grade, None)
+            assert (score, status, reason) == (expected, "valid", None)
+        score, status, reason = parse_raw_score("a", "0-1")
+        assert (score, status) == (1.0, "valid")
+
+    def test_t12_unparsable_string_rejected(self):
+        assert parse_raw_score("hot", None) == (None, "invalid", "unparsable")
+
+    def test_none_stays_valid_zero_baseline(self):
+        assert parse_raw_score(None, None) == (0.0, "valid", None)
+
+
+# --- helpers for e2e idempotency / invalid plumbing tests ---
+
+
+def _candidate_ticket(
+    ticket_id="T001",
+    title="AI Infrastructure Breakout",
+    score=0.6,
+    tickers=("NVDA",),
+    direction="LONG",
+):
+    return {
+        "ticket_id": ticket_id,
+        "title": title,
+        "score": score,
+        "tickers": list(tickers),
+        "direction": direction,
+    }
+
+
+def _candidate_doc(ticket, source_file, doc=None):
+    doc = dict(doc or {})
+    doc["_source_file"] = source_file
+    doc["tickets"] = [ticket]
+    return doc
+
+
+def _theme_doc(doc=None, source_file="theme.json"):
+    doc = dict(doc or {})
+    doc["_source_file"] = source_file
+    return doc
+
+
+def _aggregate(*, edge_candidates=(), themes=()):
+    return aggregate_signals(
+        edge_candidates=list(edge_candidates),
+        edge_concepts=[],
+        themes=list(themes),
+        sectors=[],
+        institutional=[],
+        hints=[],
+        config=load_config(None),
+    )
+
+
+class TestIdempotency:
+    """T1/T2/T9: re-ingestion must not inflate scores."""
+
+    def test_t1_repeated_signal_from_two_files_is_idempotent(self, tmp_path):
+        f1 = tmp_path / "run_a.json"
+        f2 = tmp_path / "run_b.json"
+        results = []
+        copies_list = (1, 5, 10)
+        for copies in copies_list:
+            docs = []
+            for i in range(copies):
+                doc = _candidate_doc(_candidate_ticket(), "ingest.json")
+                doc["_source_file"] = str(f1 if i % 2 == 0 else f2)
+                docs.append(doc)
+            result = _aggregate(edge_candidates=docs)
+            results.append(result)
+        base = results[0]
+        for copies, r in zip(copies_list[1:], results[1:]):
+            assert r["ranked_signals"][0]["composite_score"] == pytest.approx(
+                base["ranked_signals"][0]["composite_score"]
+            )
+            check = r["summary"]["idempotency_check"]
+            assert (
+                check["unique_evidence_ids"]
+                == base["summary"]["idempotency_check"]["unique_evidence_ids"]
+            )
+            assert check["total_input_signals"] == copies
+            assert check["duplicate_copies_merged"] == copies - 1
+            assert len(r["ranked_signals"]) == len(base["ranked_signals"])
+        check = last_result = results[-1]["summary"]["idempotency_check"]
+        assert last_result["unique_evidence_ids"] == 1
+        assert last_result["duplicate_copies_merged"] == 9
+
+    def test_t2_cross_skill_restatement_tier1_no_bonus(self, tmp_path):
+        same_event_theme = {
+            "themes": [
+                {
+                    "theme_id": "ai_infra",
+                    "theme_name": "AI Infrastructure Breakout",
+                    "strength": 0.6,
+                    "tickers": ["NVDA"],
+                    "direction": "up",
+                }
+            ]
+        }
+        composites = []
+        for copies in (1, 5, 10):
+            candidates = [
+                _candidate_doc(_candidate_ticket(), "ingest.json", doc={"score_scale": "0-1"})
+                for _ in range(copies)
+            ]
+            theme_doc = _theme_doc(same_event_theme, "theme.json")
+            themes = [theme_doc] * copies
+            result = _aggregate(edge_candidates=candidates, themes=themes)
+            assert len(result["ranked_signals"]) == 1
+            sig = result["ranked_signals"][0]
+            assert sig["composite_score"] > 0
+            composites.append(sig["composite_score"])
+            assert sig["confidence_breakdown"]["multi_skill_agreement"] == 0
+        assert len(set(composites)) == 1
+
+    def test_t9_idempotency_check_shape(self):
+        result = _aggregate(
+            edge_candidates=[_candidate_doc(_candidate_ticket(), "a.json") for _ in range(3)]
+        )
+        check = result["summary"]["idempotency_check"]
+        assert check == {
+            "total_input_signals": 3,
+            "unique_evidence_ids": 1,
+            "duplicate_copies_merged": 2,
+            "independent_units_total": 1,
+        }
+        assert result["schema_version"] == "1.1"
+
+
+class TestAgreementTier:
+    """T7/T7b/T8: documented agreement rule."""
+
+    def _contributors(self, units):
+        """units: list of (skill, ref, title, tickers)."""
+        contribs = []
+        for skill, ref, title, tickers in units:
+            contribs.append(
+                {
+                    "skill": skill,
+                    "signal_ref": ref,
+                    "raw_score": 0.8,
+                    "title": title,
+                    "tickers": sorted(t.upper() for t in tickers),
+                    "direction": "LONG",
+                    "time_horizon": "1-3 months",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        return contribs
+
+    def _merged_signal(self, units):
+        from aggregate_signals import deduplicate_signals
+
+        merged, _log = deduplicate_signals(self._contributors(units), load_config(None))
+        return merged[0]
+
+    def test_t7_same_event_two_skills_no_bonus(self):
+        units = [
+            ("theme_detector", "t1", "AI Infrastructure Breakout", ["NVDA"]),
+            ("sector_analyst", "s1", "AI Infrastructure Breakout", ["NVDA"]),
+        ]
+        signal = self._merged_signal(units)
+        result = calculate_composite_score(signal, load_config(None))
+        assert result["confidence_breakdown"]["multi_skill_agreement"] == 0
+
+    def test_t7b_paraphrase_restatement_is_known_limitation(self):
+        units = [
+            ("theme_detector", "t1", "NVDA surges on AI demand", ["NVDA"]),
+            ("sector_analyst", "s1", "AI chip demand lifts Nvidia", ["NVDA"]),
+        ]
+        signal = self._merged_signal(units)
+        result = calculate_composite_score(signal, load_config(None))
+        assert result["confidence_breakdown"]["multi_skill_agreement"] > 0
+
+    def test_t8_distinct_events_two_skills_bonus_fires(self):
+        signal = {
+            "skill": "theme_detector",
+            "signal_ref": "merged",
+            "raw_score": 0.8,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "contributing_skills": [
+                {
+                    "skill": "theme_detector",
+                    "signal_ref": "e1",
+                    "raw_score": 0.8,
+                    "title": "AI Infrastructure Breakout",
+                    "tickers": ["NVDA"],
+                    "direction": "LONG",
+                },
+                {
+                    "skill": "sector_analyst",
+                    "signal_ref": "e2",
+                    "raw_score": 0.8,
+                    "title": "Energy Sector Rotation",
+                    "tickers": ["XOM"],
+                    "direction": "LONG",
+                },
+            ],
+        }
+        result = calculate_composite_score(signal, load_config(None))
+        assert result["confidence_breakdown"]["multi_skill_agreement"] > 0
+
+    def test_t1b_three_evidence_ids_one_skill_no_bonus(self):
+        signal = {
+            "skill": "theme_detector",
+            "signal_ref": "merged",
+            "raw_score": 0.8,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "contributing_skills": [
+                {"skill": "theme_detector", "signal_ref": "e1", "raw_score": 0.8},
+                {"skill": "theme_detector", "signal_ref": "e2", "raw_score": 0.8},
+                {"skill": "theme_detector", "signal_ref": "e3", "raw_score": 0.8},
+            ],
+        }
+        result = calculate_composite_score(signal, load_config(None))
+        assert result["confidence_breakdown"]["multi_skill_agreement"] == 0
+
+
+class TestInvalidSignalPlumbing:
+    """T4/T5e2e/T6/T10e2e: invalid and assumed-scale reporting."""
+
+    def test_t6_nan_item_reported_and_excluded(self):
+        doc = {
+            "tickets": [
+                {
+                    "ticket_id": "T-nan",
+                    "title": "NaN Score Ticket",
+                    "score": float("nan"),
+                    "tickers": ["NVDA"],
+                    "direction": "LONG",
+                },
+                _candidate_ticket(ticket_id="T-ok", title="OK Ticket", score=0.9),
+            ]
+        }
+        result = _aggregate(edge_candidates=[doc])
+        assert len(result["invalid_signals"]) == 1
+        entry = result["invalid_signals"][0]
+        assert entry["skill"] == "edge_candidate_agent"
+        assert entry["signal_ref"] == "T-nan"
+        assert entry["reason"] == "non_finite"
+        assert entry["declared_scale"] is None
+        assert "source_file" in entry
+        titles = [s["title"] for s in result["ranked_signals"]]
+        assert "NaN Score Ticket" not in titles
+        assert "OK Ticket" in titles
+        assert result["summary"]["signals_above_threshold"] == 1
+
+    def test_t4_declared_0_1_ticket_above_range_e2e(self):
+        doc = {
+            "score_scale": "0-1",
+            "tickets": [
+                {
+                    "ticket_id": "T-x",
+                    "title": "Overscaled",
+                    "priority_score": 1.1,
+                    "tickers": ["NVDA"],
+                    "direction": "LONG",
+                }
+            ],
+        }
+        result = _aggregate(edge_candidates=[doc])
+        assert result["invalid_signals"][0]["reason"] == "out_of_range"
+        assert result["invalid_signals"][0]["declared_scale"] == "0-1"
+        assert result["ranked_signals"] == []
+
+    def test_t4_declared_0_100_theme_scored_validly(self):
+        doc = _theme_doc(
+            {
+                "score_scale": "0-100",
+                "themes": [
+                    {
+                        "theme_id": "t1",
+                        "theme_name": "AI Theme",
+                        "heat": 72,
+                        "tickers": ["NVDA"],
+                        "direction": "up",
+                        "score_scale": "0-100",
+                    }
+                ],
+            }
+        )
+        result = _aggregate(edge_candidates=[], themes=[doc])
+        assert result["invalid_signals"] == []
+        assert result["ranked_signals"][0]["composite_score"] > 0
+        assert result["ranked_signals"][0].get("evidence_id")
+
+    def test_t5_assumed_scale_reported_e2e(self):
+        doc = _theme_doc(
+            {
+                "themes": [
+                    {
+                        "theme_id": "t1",
+                        "theme_name": "AI Theme",
+                        "heat": 72,
+                        "tickers": ["NVDA"],
+                        "direction": "up",
+                    }
+                ]
+            }
+        )
+        result = _aggregate(edge_candidates=[], themes=[doc])
+        assert result["ranked_signals"][0]["score_scale_assumed"] is True
+        assert len(result["scale_assumptions_report"]) == 1
+        entry = result["scale_assumptions_report"][0]
+        assert entry["assumed_scale"] == "0-100"
+        assert entry["signal_ref"] == "t1"
+
+    def test_t10_unparsable_scale_key_rejected_e2e(self):
+        doc = _theme_doc(
+            {
+                "themes": [
+                    {
+                        "theme_id": "t1",
+                        "theme_name": "AI Theme",
+                        "strength": 0.8,
+                        "score_scale": "foo",
+                        "tickers": ["NVDA"],
+                        "direction": "up",
+                    }
+                ]
+            }
+        )
+        result = _aggregate(edge_candidates=[], themes=[doc])
+        assert result["ranked_signals"] == []
+        assert result["invalid_signals"][0]["reason"] == "missing_scale"
+
+    def test_t6e2e_markdown_has_dropped_section(self):
+        doc = {
+            "tickets": [
+                {
+                    "ticket_id": "T-nan",
+                    "title": "NaN Score Ticket",
+                    "score": float("nan"),
+                    "tickers": ["NVDA"],
+                    "direction": "LONG",
+                }
+            ]
+        }
+        result = _aggregate(edge_candidates=[doc])
+        md = generate_markdown_report(result)
+        assert "Dropped by Score Validation" in md
+
+
+class TestReviewFindingsFixes:
+    """Regression tests for review round 1 findings (findings 1/2/4/6)."""
+
+    def _docs_with_ts(self, records):
+        return [
+            _candidate_doc(
+                {**_candidate_ticket(), "timestamp": ts},
+                src,
+            )
+            for ts, src in records
+        ]
+
+    def test_t13_refreshed_timestamp_order_independent(self):
+        old_ts, new_ts = "2026-01-01T00:00:00+00:00", "2026-10-10T00:00:00+00:00"
+        # Order A: newest first; Order B: oldest first
+        docs_a = self._docs_with_ts([(new_ts, "new.json"), (old_ts, "old.json")])
+        docs_b = self._docs_with_ts([(old_ts, "old.json"), (new_ts, "new.json")])
+        result_a = _aggregate(edge_candidates=docs_a)
+        result_b = _aggregate(edge_candidates=docs_b)
+        assert result_a["ranked_signals"][0]["composite_score"] == pytest.approx(
+            result_b["ranked_signals"][0]["composite_score"]
+        )
+        # Merged primary carries the NEWEST timestamp (fresher, capped by recency)
+        assert result_a["ranked_signals"][0]["composite_score"] > 0
+
+    def test_t14_exact_log_survives_near_dup_consumption(self):
+        # a1 unique + 4 identical re-ingests of b1, all similar to a1
+        docs = [_candidate_doc(_candidate_ticket(ticket_id="a1"), "a.json")]
+        docs += [
+            _candidate_doc(
+                _candidate_ticket(ticket_id="b1", title="Different Title Here"), "b.json"
+            )
+            for _ in range(4)
+        ]
+        result = _aggregate(edge_candidates=docs)
+        exact_entries = [
+            e for e in result["deduplication_log"] if e.get("reason") == "same evidence re-ingested"
+        ]
+        assert len(exact_entries) == 1
+        assert len(exact_entries[0]["duplicates_removed"]) == 3
+        assert result["summary"]["idempotency_check"]["duplicate_copies_merged"] == 3
+
+    def test_t15_assumed_flag_or_across_exact_copies(self):
+        declared = _candidate_doc(
+            _candidate_ticket(score=72), "declared.json", doc={"score_scale": "0-100"}
+        )
+        undeclared = _candidate_doc(
+            _candidate_ticket(ticket_id="T001", score=1.1), "undeclared.json"
+        )
+        result = _aggregate(edge_candidates=[declared, undeclared])
+        assert result["ranked_signals"][0]["score_scale_assumed"] is True
+
+    def test_t16_load_config_rejects_nan_weights(self, tmp_path):
+        cfg = tmp_path / "nan_weights.yaml"
+        cfg.write_text("weights:\n  theme_detector: .nan\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="non-finite"):
+            load_config(str(cfg))
+
+
+class TestReviewRound3Fixes:
+    """Round-3 review fixes: strict-JSON safety + assumed-scale report dedupe."""
+
+    def test_non_finite_contributor_is_strict_json_safe(self):
+        signal = {
+            "skill": "theme_detector",
+            "signal_ref": "m",
+            "raw_score": 0.8,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "contributing_skills": [
+                {"skill": "theme_detector", "signal_ref": "e1", "raw_score": float("nan")},
+                {"skill": "sector_analyst", "signal_ref": "e2", "raw_score": None},
+                {"skill": "edge_candidate_agent", "signal_ref": "e3", "raw_score": 0.8},
+            ],
+        }
+        result = calculate_composite_score(signal, load_config(None))
+        serialized = json.dumps(result, allow_nan=False)
+        assert result["composite_score"] >= 0
+        assert "NaN" not in serialized and "Infinity" not in serialized
+        cleaned = [
+            c["raw_score"] for c in result["contributing_skills"] if c["signal_ref"] in {"e1", "e2"}
+        ]
+        assert cleaned == [None, None]
+
+    def test_assumed_scale_report_deduped_across_reingestions(self):
+        docs = [
+            _theme_doc(
+                {
+                    "themes": [
+                        {
+                            "theme_id": "t1",
+                            "theme_name": "AI Theme",
+                            "heat": 72,
+                            "tickers": ["NVDA"],
+                            "direction": "up",
+                        }
+                    ]
+                },
+                source_file=f"t{i}.json",
+            )
+            for i in range(5)
+        ]
+        result = _aggregate(themes=docs)
+        assert len(result["scale_assumptions_report"]) == 1

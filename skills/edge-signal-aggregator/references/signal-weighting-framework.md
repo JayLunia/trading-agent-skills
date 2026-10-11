@@ -54,8 +54,13 @@ The composite conviction score for an aggregated signal is calculated as:
 
 ```
 base_score = Σ(skill_weight × normalized_score) / Σ(skill_weight)
-composite  = min(max_score, (base_score + agreement_bonus + merge_bonus) × recency_factor)
+composite  = min(max_score, (base_score + agreement_bonus) × recency_factor)
 ```
+
+As of schema 1.1 (Issue #510) the per-duplicate merge bonus is removed for
+idempotency: re-ingesting identical evidence must not inflate the score. Agreement
+credit instead requires distinct evidence IDs, distinct event fingerprints, and
+distinct skills (agreement_tier = min of the three).
 
 ### Normalization
 

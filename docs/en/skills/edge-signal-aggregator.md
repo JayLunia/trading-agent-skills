@@ -107,9 +107,10 @@ python3 skills/edge-signal-aggregator/scripts/aggregate_signals.py \
 
 Open the generated report to review:
 1. **Ranked Edge Ideas** - Sorted by composite conviction score
-2. **Signal Provenance** - Which skills contributed to each idea
+2. **Signal Provenance** - Which skills contributed to each idea (with `evidence_id` per contributor)
 3. **Contradictions** - Conflicting signals flagged for manual review
-4. **Deduplication Log** - Merged overlapping themes
+4. **Deduplication Log** - Merged overlapping themes (verbatim re-ingested duplicates get no bonus)
+5. **Invalid Signals** - Scores that are NaN/infinite, negative, or out of declared range are dropped and reported, never converted into confidence
 
 ### Step 4: Act on High-Conviction Signals
 
@@ -133,3 +134,25 @@ python3 skills/edge-signal-aggregator/scripts/aggregate_signals.py \
 **Scripts:**
 
 - `skills/edge-signal-aggregator/scripts/aggregate_signals.py`
+
+---
+
+## 7. Producer Contract and Scoring Rules (schema 1.1)
+
+Since schema 1.1, aggregation is idempotent and strict about score validity (Issue #510):
+
+- **`evidence_id`** (optional, per item): stable evidence identity. Re-ingesting the same
+  evidence (same skill + `evidence_id`) never changes the aggregate score. Without it a
+  deterministic fallback is derived from skill, signal reference, title, tickers, and direction
+  (timestamps excluded, so refreshed timestamps cannot forge a new identity). When copies carry different timestamps, the merged primary keeps the newest one (lexicographic comparison over same-format ISO strings), so ingestion order cannot change the score.
+- **`score_scale`** (optional, per item or per document: `"0-1"` / `"0-100"`): declared scales
+  are enforced strictly. NaN/infinity, negative, and out-of-range values are rejected into
+  `invalid_signals`; a present-but-unparsable declaration (`""`, `"foo"`) is rejected as
+  `missing_scale`. When the key is absent, values in (1, 100] are assumed 0-100 and flagged
+  (`score_scale_assumed: true` + `scale_assumptions_report`); values > 100 are rejected.
+- **Agreement rule**: bonuses fire on `agreement_tier = min(distinct evidence ids, distinct
+  event fingerprints, distinct skills)`. Verbatim cross-skill restatements (identical normalized
+  title + tickers) count once and cannot self-confirm; re-ingested duplicates earn nothing.
+  Known limitation: event fingerprints are vocabulary-based, so paraphrased cross-skill
+  restatements with disjoint word sets still earn the agreement bonus.
+- **`merge_bonus_per_duplicate`** (in custom weights YAML) is deprecated and ignored.

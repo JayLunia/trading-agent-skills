@@ -84,7 +84,7 @@ python3 skills/edge-signal-aggregator/scripts/aggregate_signals.py \
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "generated_at": "2026-03-02T07:00:00Z",
   "config": {
     "weights": {
@@ -102,7 +102,14 @@ python3 skills/edge-signal-aggregator/scripts/aggregate_signals.py \
     "total_input_signals": 42,
     "unique_signals_after_dedup": 28,
     "contradictions_found": 3,
-    "signals_above_threshold": 12
+    "signals_above_threshold": 12,
+    "invalid_signals_dropped": 2,
+    "idempotency_check": {
+      "total_input_signals": 42,
+      "unique_evidence_ids": 28,
+      "duplicate_copies_merged": 14,
+      "independent_units_total": 30
+    }
   },
   "ranked_signals": [
     {
@@ -110,12 +117,16 @@ python3 skills/edge-signal-aggregator/scripts/aggregate_signals.py \
       "signal_id": "sig_001",
       "title": "AI Infrastructure Capex Acceleration",
       "composite_score": 0.87,
+      "evidence_id": "ticket_2026-03-01_001",
+      "score_scale_assumed": false,
       "contributing_skills": [
         {
           "skill": "edge_candidate_agent",
           "signal_ref": "ticket_2026-03-01_001",
           "raw_score": 0.92,
-          "weighted_contribution": 0.23
+          "weighted_contribution": 0.23,
+          "evidence_id": "ticket_2026-03-01_001",
+          "event_fingerprint": "sha1-of-title-and-tickers"
         },
         {
           "skill": "theme_detector",
@@ -156,10 +167,62 @@ python3 skills/edge-signal-aggregator/scripts/aggregate_signals.py \
       "merged_into": "sig_001",
       "duplicates_removed": ["theme_detector:ai_compute", "edge_hints:datacenter_demand"],
       "similarity_score": 0.92
+    },
+    {
+      "merged_into": "edge_candidate_agent:ticket_2026-03-01_001",
+      "duplicates_removed": ["edge_candidate_agent:ticket_2026-03-01_001"],
+      "similarity_score": 1.0,
+      "reason": "same evidence re-ingested"
+    }
+  ],
+  "invalid_signals": [
+    {
+      "skill": "theme_detector",
+      "signal_ref": "broken_theme",
+      "title": "Theme with a corrupted score",
+      "reason": "non_finite",
+      "declared_scale": null,
+      "raw_value_repr": "nan",
+      "source_file": "reports/theme_detector_2026-03-01.json"
+    }
+  ],
+  "scale_assumptions_report": [
+    {
+      "skill": "edge_candidate_agent",
+      "signal_ref": "ticket_002",
+      "value": 7.2,
+      "assumed_scale": "0-100",
+      "source_file": "reports/edge_candidate_agent_2026-03-01.json"
     }
   ]
 }
 ```
+
+### Producer contract (optional keys, schema 1.1)
+
+Each producer item (ticket, concept, theme, sector row, flow, hint) MAY carry:
+
+- `evidence_id` — a stable identifier for the underlying evidence. Re-ingesting the same
+  evidence (same skill + `evidence_id`) never changes the aggregate score; without this key a
+  deterministic fallback is derived from skill, signal reference, title, tickers, and direction
+  (timestamps are excluded so refreshed timestamps cannot forge a new identity). When copies carry different timestamps, the merged primary keeps the newest one (lexicographic comparison over same-format ISO strings), so ingestion order cannot change the score.
+- `score_scale` — `"0-1"` or `"0-100"`, declaring the raw score's scale. Declared scales are
+  enforced strictly: NaN/infinity/negative/out-of-range values are rejected into
+  `invalid_signals`, never converted into maximum confidence. A present-but-unparsable
+  declaration (`""`, `"foo"`) is also rejected (`missing_scale`). If the key is absent, values
+  in (1, 100] are divided by 100 and flagged `score_scale_assumed: true` plus a
+  `scale_assumptions_report` entry; values > 100 are rejected.
+
+### Agreement rule (Issue #510)
+
+Agreement bonuses fire on `agreement_tier = min(distinct evidence_ids, distinct
+event_fingerprints, distinct skills)` among a merged signal's contributors: tier 2 earns the
+two-skills bonus, tier 3+ the three-plus bonus. Re-ingested duplicates earn nothing; the same
+event restated by another skill (identical normalized title + tickers) counts once. Known
+limitation: the event fingerprint is vocabulary-based, so paraphrased restatements with disjoint
+word sets still earn the agreement bonus — treat cross-skill paraphrases with independent
+verification. Merged duplicates no longer earn a per-copy bonus (`merge_bonus_per_duplicate`
+is deprecated and ignored).
 
 ### Markdown Report
 
@@ -216,3 +279,5 @@ Reports are saved to `reports/` with filenames:
 3. **Configurable Weights** -- Default weights reflect typical reliability but can be customized per user
 4. **Deduplication Without Loss** -- Merged signals retain references to all original sources
 5. **Actionable Output** -- Ranked list with clear tickers, direction, and time horizon for each idea
+6. **Idempotent Aggregation** -- Re-ingesting the same evidence never inflates scores; agreement credit requires distinct skills AND distinct events
+7. **Strict Score Validation** -- NaN/infinity, negative, and out-of-range scores are rejected and reported, never converted into maximum confidence
