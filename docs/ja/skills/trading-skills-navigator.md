@@ -118,7 +118,8 @@ JSON を読み、ユーザーの言語で次を説明します。
 - Skillset: `skillset.id` とカテゴリ
 - Goal availability: `goal_match.runnability` と `missing_requirements` を確認する。`eligible` はメタデータと指定条件上の適格性であり、入力データの準備完了ではない。`blocked` は対応 workflow が存在しても今回の要求には使えない状態
 - API なし / API あり: `no_api_path: null` は元の目的に使える経路がないことを示す。有料連携が必要なら `missing_requirements` の理由を説明する
-- Honest gap: `honest_gap` は元の目的に使える workflow がない状態。`unshipped` は未提供、`blocked` は条件・能力による利用不可を表す。`alternative_workflow` は別目的の代替としてのみ示す。CSV ポートフォリオレビューは #512 の範囲
+- Honest gap: `honest_gap` は元の目的に使える workflow がない状態。`unshipped` は未提供、`blocked` は条件・能力による利用不可を表す。`alternative_workflow` は別目的の代替としてのみ示す。CSV ポートフォリオレビューは #512 の範囲。CSV への言及は原則ポートフォリオの入力元とみなして blocked にする。CSV が明確に出力先で（CSVに出力、エクスポート、送付など）入力を示す語がない場合だけ通常どおり推奨する
+- 除外された副 workflow: no-API モードで有料 API が必要な secondary workflow は `dropped_secondary_workflows`（`{id, reason}`）に載る。目的の blocked 判定には影響しないため、省略された後続ステップとして利用者に伝える
 - Operational roles: setup bundle または honest-gap 候補に含まれる各スキルの
   `operational_roles` を説明し、standalone の場合は理由も伝える
 - Rationale: なぜその推奨になったのか

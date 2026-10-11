@@ -1200,6 +1200,8 @@ def test_persona_targets_resolve(repo_metadata: dict[str, Any]) -> None:
         "Review my portfolio, export the results to csv",
         "Alpacaのポートフォリオを見直したい、CSVで出力もしたい",
         "ポートフォリオを見直したい、結果はCSVに出力したい",
+        "weekly portfolio review with Alpaca, then send me the csv file afterwards",
+        "Review my portfolio with Alpaca, not from a CSV file",
     ],
 )
 def test_csv_export_mention_is_not_csv_input_gap(repo_metadata: dict[str, Any], query: str) -> None:
@@ -1219,19 +1221,23 @@ def test_csv_export_mention_is_not_csv_input_gap(repo_metadata: dict[str, Any], 
         "Review the holdings in holdings.csv",
         "CSVからポートフォリオを見直したい",
         "CSVの保有銘柄を取り込んで見直したい",
+        "Review my portfolio, I have a csv",
+        "portfolio review csv",
+        "CSV portfolio review",
+        "review my portfolio, data is csv",
+        "portfolio review with csv",
+        "my positions are stored as csv, do a weekly portfolio review",
+        "CSVファイルで管理しているポートフォリオを見直したい",
+        "I don't use Alpaca, I have a CSV, review my portfolio",
+        "Review my portfolio without Alpaca, I have a CSV",
+        "Review my portfolio from a CSV file, not Alpaca",
+        "Review my portfolio with Alpaca, import my CSV and export results to csv",
     ],
 )
 def test_csv_as_portfolio_source_stays_blocked(repo_metadata: dict[str, Any], query: str) -> None:
     result = recommend(query, repo_metadata)
     assert result["goal_match"]["runnability"] == "blocked"
     assert result["honest_gap"] is True
-
-
-def test_alpaca_user_with_csv_source_wording_gets_normal_recommendation(
-    repo_metadata: dict[str, Any],
-) -> None:
-    result = recommend("Review my portfolio with Alpaca, not from a CSV file", repo_metadata)
-    assert result["goal_match"]["runnability"] == "eligible"
 
 
 _NO_API_SWING_QUERY = (

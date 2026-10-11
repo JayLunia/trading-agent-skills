@@ -1086,31 +1086,39 @@ def _order_secondary(
     return ordered
 
 
-_CSV_SOURCE_PATTERNS = (
-    # English: CSV named as where the portfolio comes from.
+_CSV_INPUT_PATTERNS = (
+    # CSV named as where the portfolio comes from. These always win.
     r"\bfrom\s+(?:an?\s+|my\s+|the\s+)?(?:[\w-]+\s+){0,2}csv\b",
     r"\b(?:import|upload|load|read|ingest|parse|using|use|based on)\b[^.;]{0,30}\bcsv\b",
-    r"\bcsv\s+(?:file|export|statement|holdings|positions)\b",
     r"\b(?:holdings|positions|portfolio)\b[^.;]{0,20}\bin\s+(?:an?\s+)?csv\b",
     r"[\w/\\-]+\.csv\b",
-    # Japanese equivalents.
     r"csv\s*(?:から|を取り込|を取込|を読み込|を読込|をインポート|をアップロード|の保有|のポジション)",
     r"(?:保有|ポジション|銘柄).{0,10}csv",
     r"csv.{0,10}(?:取り込|取込|読み込|インポート|アップロード)",
 )
-_SUPPORTED_BROKER_RE = re.compile(r"\balpaca\b|アルパカ")
+_CSV_OUTPUT_PATTERNS = (
+    r"\b(?:export|save|write|send|output|download|email|mail)\b[^.;]{0,25}\bcsv\b",
+    r"\bcsv\s+(?:export|output|report)\b",
+    r"csv\s*(?:に|で)\s*(?:出力|保存|書き出|エクスポート)",
+    r"csv\s*を\s*(?:出力|エクスポート|書き出)",
+)
+_NEGATED_CSV_RE = re.compile(r"\b(?:not|without|no)\s+(?:from\s+)?(?:an?\s+|any\s+)?csv\b")
 
 
 def _wants_csv_portfolio_input(norm: str) -> bool:
-    """True when the query offers CSV as the portfolio *source* (issue #511).
+    """True when a CSV mention should be read as the portfolio *source* (#511).
 
-    A bare mention of CSV (for example exporting results) is not an input
-    request, and a named supported broker (Alpaca) means the user has a
-    runnable data source, so neither triggers the unshipped-CSV gap.
+    Any CSV mention defaults to "input", because Navigator cannot read files.
+    The exception is a CSV that is clearly an output (export/save/send, JA
+    CSVに出力) with no input pattern anywhere; input patterns win. A negated
+    CSV ("not from a CSV") is ignored. Naming Alpaca never matters on its own.
     """
-    if "csv" not in norm or _SUPPORTED_BROKER_RE.search(norm):
+    text = _NEGATED_CSV_RE.sub(" ", norm)
+    if "csv" not in text:
         return False
-    return any(re.search(pat, norm) for pat in _CSV_SOURCE_PATTERNS)
+    if any(re.search(pat, text) for pat in _CSV_INPUT_PATTERNS):
+        return True
+    return not any(re.search(pat, text) for pat in _CSV_OUTPUT_PATTERNS)
 
 
 def recommend(

@@ -4973,6 +4973,90 @@
       "expected_routing_status": "exact",
       "expected_alternative_workflow": null,
       "expected_missing_requirement_kinds": []
+    },
+    {
+      "id": "availability-csv-bare-en",
+      "language": "en",
+      "query": "portfolio review with csv",
+      "label": "positive",
+      "target_persona": "dividend-long-term-investor",
+      "expected_candidate_personas": [
+        "dividend-long-term-investor"
+      ],
+      "expected_selected_persona": "dividend-long-term-investor",
+      "neighbor_of": null,
+      "base_id": null,
+      "transformation": null,
+      "tags": [
+        "issue-511",
+        "availability",
+        "csv-input-default"
+      ],
+      "expected_primary_workflow": null,
+      "expected_honest_gap": true,
+      "expected_no_api_path": null,
+      "expected_runnability": "blocked",
+      "expected_routing_status": "unavailable",
+      "expected_alternative_workflow": null,
+      "expected_missing_requirement_kinds": [
+        "missing_input",
+        "unsupported_capability"
+      ]
+    },
+    {
+      "id": "availability-csv-managed-ja",
+      "language": "ja",
+      "query": "CSVファイルで管理しているポートフォリオを見直したい",
+      "label": "positive",
+      "target_persona": "dividend-long-term-investor",
+      "expected_candidate_personas": [
+        "dividend-long-term-investor"
+      ],
+      "expected_selected_persona": "dividend-long-term-investor",
+      "neighbor_of": null,
+      "base_id": null,
+      "transformation": null,
+      "tags": [
+        "issue-511",
+        "availability",
+        "csv-input-default"
+      ],
+      "expected_primary_workflow": null,
+      "expected_honest_gap": true,
+      "expected_no_api_path": null,
+      "expected_runnability": "blocked",
+      "expected_routing_status": "unavailable",
+      "expected_alternative_workflow": null,
+      "expected_missing_requirement_kinds": [
+        "missing_input",
+        "unsupported_capability"
+      ]
+    },
+    {
+      "id": "availability-csv-send-after-alpaca-en",
+      "language": "en",
+      "query": "weekly portfolio review with Alpaca, then send me the csv file afterwards",
+      "label": "positive",
+      "target_persona": "dividend-long-term-investor",
+      "expected_candidate_personas": [
+        "dividend-long-term-investor"
+      ],
+      "expected_selected_persona": "dividend-long-term-investor",
+      "neighbor_of": null,
+      "base_id": null,
+      "transformation": null,
+      "tags": [
+        "issue-511",
+        "availability",
+        "csv-input-default"
+      ],
+      "expected_primary_workflow": "core-portfolio-weekly",
+      "expected_honest_gap": false,
+      "expected_no_api_path": false,
+      "expected_runnability": "eligible",
+      "expected_routing_status": "exact",
+      "expected_alternative_workflow": null,
+      "expected_missing_requirement_kinds": []
     }
   ]
 }

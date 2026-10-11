@@ -103,8 +103,9 @@ Parse the JSON and explain, in the user's language:
   `suggested_skills` may help. If it is `blocked`, a matching workflow exists
   but is unavailable: explain each missing requirement. CSV portfolio review
   is not shipped; offering a CSV as the portfolio source does not make it
-  runnable. Merely mentioning CSV (exporting results) or naming Alpaca does
-  not trigger this gap.
+  runnable. Any CSV mention is read as the source unless it is clearly an
+  output (export/save/send; CSVに出力) with no input wording; naming Alpaca
+  alone never clears the gap.
 - **Backtest execution request** — relay the `note` when the research workflow
   is recommended for a request containing backtest terms. It can evaluate
   separately measured metrics but does not execute the backtest. Its

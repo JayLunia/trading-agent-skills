@@ -186,11 +186,16 @@ in `goal_match` with `runnability: blocked` and the paid integration in
 `honest_gap: true`, `no_api_path: null`, and an empty `setup_bundle`.
 `market-regime-daily` may appear separately as a different-goal
 `alternative_workflow`; it never becomes an exact portfolio/swing match.
-A request that offers CSV as the portfolio *source* ("from a CSV file",
-"import holdings.csv", "CSVから…", "CSVの保有銘柄を取り込んで…") also remains
-blocked because #512 has not shipped a CSV workflow. Navigator accepts no CSV
-path argument. A bare CSV mention such as exporting results, or a query that
-names Alpaca, is not a CSV-input request and routes normally.
+For core-portfolio-weekly, any CSV mention ("from a CSV file", "I have a csv",
+"portfolio review csv", "CSVファイルで管理している…") is read as the portfolio
+*source* and stays blocked because #512 has not shipped a CSV workflow.
+Navigator accepts no CSV path argument. The one exception is a CSV that is
+clearly an output ("export/save/send … csv", "CSVに出力") with no input
+pattern present; input patterns win, a negated CSV ("not from a CSV") is
+ignored, and naming or negating Alpaca never changes the outcome by itself.
+Known limitation: a CSV query with no portfolio wording (for example "I have
+a CSV") does not match the portfolio persona and falls back to
+market-regime-daily; goal matching is unchanged here.
 
 Under `--no-api`, paid-API *secondary* workflows are removed from
 `secondary_workflows` and listed in `dropped_secondary_workflows`
