@@ -715,6 +715,7 @@ def test_json_schema_keys_present(repo_metadata: dict[str, Any]) -> None:
         "note",
         "rationale",
         "routing_diagnostics",
+        "dropped_secondary_workflows",
         "goal_match",
         "alternative_workflow",
         "setup_path_ref",
@@ -1190,3 +1191,79 @@ def test_persona_targets_resolve(repo_metadata: dict[str, Any]) -> None:
             assert p.primary in wf_ids, p.name
             for sid in p.secondary:
                 assert sid in wf_ids, f"{p.name}:{sid}"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "weekly portfolio review with Alpaca, export a csv",
+        "Review my portfolio, export the results to csv",
+        "Alpacaのポートフォリオを見直したい、CSVで出力もしたい",
+        "ポートフォリオを見直したい、結果はCSVに出力したい",
+    ],
+)
+def test_csv_export_mention_is_not_csv_input_gap(repo_metadata: dict[str, Any], query: str) -> None:
+    result = recommend(query, repo_metadata)
+    assert result["goal_match"]["workflow"]["id"] == "core-portfolio-weekly"
+    assert result["goal_match"]["runnability"] == "eligible"
+    assert result["honest_gap"] is False
+    assert result["primary_workflow"]["id"] == "core-portfolio-weekly"
+    assert result["goal_match"]["missing_requirements"] == []
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Review my portfolio from a CSV file",
+        "Review my portfolio using a broker csv export",
+        "Review the holdings in holdings.csv",
+        "CSVからポートフォリオを見直したい",
+        "CSVの保有銘柄を取り込んで見直したい",
+    ],
+)
+def test_csv_as_portfolio_source_stays_blocked(repo_metadata: dict[str, Any], query: str) -> None:
+    result = recommend(query, repo_metadata)
+    assert result["goal_match"]["runnability"] == "blocked"
+    assert result["honest_gap"] is True
+
+
+def test_alpaca_user_with_csv_source_wording_gets_normal_recommendation(
+    repo_metadata: dict[str, Any],
+) -> None:
+    result = recommend("Review my portfolio with Alpaca, not from a CSV file", repo_metadata)
+    assert result["goal_match"]["runnability"] == "eligible"
+
+
+_NO_API_SWING_QUERY = (
+    "I'm a part-time swing trader and only trade when the market regime is favorable"
+)
+
+
+def test_no_api_reports_dropped_paid_secondary(repo_metadata: dict[str, Any]) -> None:
+    with_api = recommend(_NO_API_SWING_QUERY, repo_metadata)
+    assert with_api["dropped_secondary_workflows"] == []
+    assert [w["id"] for w in with_api["secondary_workflows"]] == ["swing-opportunity-daily"]
+
+    result = recommend(_NO_API_SWING_QUERY, repo_metadata, no_api=True)
+    assert result["secondary_workflows"] == []
+    assert result["goal_match"]["missing_requirements"] == []
+    assert result["honest_gap"] is False
+    dropped = result["dropped_secondary_workflows"]
+    assert [d["id"] for d in dropped] == ["swing-opportunity-daily"]
+    assert dropped[0]["reason"].startswith("requires paid API")
+    assert "Dropped secondary" in render_text(result)
+    assert "swing-opportunity-daily" in render_text(result)
+
+
+def test_no_api_dropped_secondary_cli_json_and_text(capsys: pytest.CaptureFixture[str]) -> None:
+    args = ["--query", _NO_API_SWING_QUERY, "--no-api"]
+    assert main([*args, "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [d["id"] for d in payload["dropped_secondary_workflows"]] == ["swing-opportunity-daily"]
+    assert main([*args, "--format", "text"]) == 0
+    assert "Dropped secondary (no-API)" in capsys.readouterr().out
+
+
+def test_blocked_text_output_names_skillset(repo_metadata: dict[str, Any]) -> None:
+    result = recommend("Review my portfolio from a CSV file", repo_metadata)
+    assert f"Skillset: {result['skillset']['id']}" in render_text(result)

@@ -82,7 +82,9 @@ Parse the JSON and explain, in the user's language:
   that data or input files are ready. If `alternative_workflow` is present,
   label it a **different-goal** on-ramp.
 - **Secondary workflows** — if any, how they relate (e.g. "run the regime
-  check first, then this when it allows risk").
+  check first, then this when it allows risk"). If `dropped_secondary_workflows`
+  is non-empty, say which follow-on workflows were omitted under no-API mode
+  and why; they never make the goal blocked.
 - **Skillset** — the `skillset.id` (skills-index category).
   `manifest_status: active` means a curated `skillsets/<id>.yaml` bundle ships
   for this category (market-regime, core-portfolio, swing-opportunity,
@@ -100,7 +102,9 @@ Parse the JSON and explain, in the user's language:
   `goal_match.runnability` is `unshipped`, no dedicated workflow exists and
   `suggested_skills` may help. If it is `blocked`, a matching workflow exists
   but is unavailable: explain each missing requirement. CSV portfolio review
-  is not shipped; mentioning a CSV path does not make it runnable.
+  is not shipped; offering a CSV as the portfolio source does not make it
+  runnable. Merely mentioning CSV (exporting results) or naming Alpaca does
+  not trigger this gap.
 - **Backtest execution request** — relay the `note` when the research workflow
   is recommended for a request containing backtest terms. It can evaluate
   separately measured metrics but does not execute the backtest. Its
@@ -146,6 +150,7 @@ The JSON the recommender emits (stable, idempotent, `sort_keys`):
 | `honest_gap` | `true` when no usable workflow can serve the matched goal (`unshipped` or `blocked`) |
 | `goal_match` | Original `{persona, workflow, runnability, missing_requirements}`; `eligible` only means metadata/constraint eligibility |
 | `alternative_workflow` | Separate `{workflow, relationship: different_goal, no_api_path, explanation}` or `null`; never substitutes for the goal |
+| `dropped_secondary_workflows` | `[{id, reason}]` — secondary workflows removed because they need a paid API under `--no-api`; `[]` otherwise. Not a blocker: narrate it so the user knows a follow-on step was omitted |
 | `note` | Plain-language explanation for gaps / unmapped input |
 | `rationale` | Ordered list of why-this-was-recommended strings |
 | `routing_diagnostics` | `{status, selected_persona, candidate_personas, explanation}`. `status` is `exact`, `ambiguous`, `fallback`, or `unavailable`; candidates are all pre-constraint persona matches in deterministic order |

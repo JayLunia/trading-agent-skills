@@ -118,7 +118,11 @@ Parse the JSON and explain, in the user's language:
   `goal_match.runnability: unshipped` means no dedicated workflow ships;
   `blocked` means the matching workflow cannot run under this request. Present
   `alternative_workflow` only as a different-goal on-ramp. CSV portfolio
-  review remains unavailable until #512 ships.
+  review remains unavailable until #512 ships. Only a CSV offered as the
+  portfolio source triggers this; exporting results to CSV does not.
+- **Dropped secondaries** — under no-API mode, paid-API follow-on workflows
+  are removed and listed in `dropped_secondary_workflows` (`{id, reason}`).
+  Tell the user which steps were omitted; they do not block the goal.
 - **Operational roles** — explain each `operational_roles` entry for the
   setup bundle or honest-gap suggestions, including standalone rationale.
 - Always read the `rationale` array and explain *why* this was recommended.

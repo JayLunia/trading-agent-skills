@@ -4921,6 +4921,58 @@
       "expected_missing_requirement_kinds": [
         "paid_api"
       ]
+    },
+    {
+      "id": "availability-csv-export-en",
+      "language": "en",
+      "label": "positive",
+      "query": "Review my portfolio, export the results to csv",
+      "target_persona": "dividend-long-term-investor",
+      "expected_candidate_personas": [
+        "dividend-long-term-investor"
+      ],
+      "expected_selected_persona": "dividend-long-term-investor",
+      "expected_primary_workflow": "core-portfolio-weekly",
+      "expected_honest_gap": false,
+      "expected_no_api_path": false,
+      "neighbor_of": null,
+      "base_id": null,
+      "transformation": null,
+      "tags": [
+        "issue-511",
+        "availability",
+        "csv-output-not-input"
+      ],
+      "expected_runnability": "eligible",
+      "expected_routing_status": "exact",
+      "expected_alternative_workflow": null,
+      "expected_missing_requirement_kinds": []
+    },
+    {
+      "id": "availability-csv-export-ja",
+      "language": "ja",
+      "label": "positive",
+      "query": "ポートフォリオを見直したい、結果はCSVに出力したい",
+      "target_persona": "dividend-long-term-investor",
+      "expected_candidate_personas": [
+        "dividend-long-term-investor"
+      ],
+      "expected_selected_persona": "dividend-long-term-investor",
+      "expected_primary_workflow": "core-portfolio-weekly",
+      "expected_honest_gap": false,
+      "expected_no_api_path": false,
+      "neighbor_of": null,
+      "base_id": null,
+      "transformation": null,
+      "tags": [
+        "issue-511",
+        "availability",
+        "csv-output-not-input"
+      ],
+      "expected_runnability": "eligible",
+      "expected_routing_status": "exact",
+      "expected_alternative_workflow": null,
+      "expected_missing_requirement_kinds": []
     }
   ]
 }

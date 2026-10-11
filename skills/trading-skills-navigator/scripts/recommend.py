@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1085,6 +1086,33 @@ def _order_secondary(
     return ordered
 
 
+_CSV_SOURCE_PATTERNS = (
+    # English: CSV named as where the portfolio comes from.
+    r"\bfrom\s+(?:an?\s+|my\s+|the\s+)?(?:[\w-]+\s+){0,2}csv\b",
+    r"\b(?:import|upload|load|read|ingest|parse|using|use|based on)\b[^.;]{0,30}\bcsv\b",
+    r"\bcsv\s+(?:file|export|statement|holdings|positions)\b",
+    r"\b(?:holdings|positions|portfolio)\b[^.;]{0,20}\bin\s+(?:an?\s+)?csv\b",
+    r"[\w/\\-]+\.csv\b",
+    # Japanese equivalents.
+    r"csv\s*(?:から|を取り込|を取込|を読み込|を読込|をインポート|をアップロード|の保有|のポジション)",
+    r"(?:保有|ポジション|銘柄).{0,10}csv",
+    r"csv.{0,10}(?:取り込|取込|読み込|インポート|アップロード)",
+)
+_SUPPORTED_BROKER_RE = re.compile(r"\balpaca\b|アルパカ")
+
+
+def _wants_csv_portfolio_input(norm: str) -> bool:
+    """True when the query offers CSV as the portfolio *source* (issue #511).
+
+    A bare mention of CSV (for example exporting results) is not an input
+    request, and a named supported broker (Alpaca) means the user has a
+    runnable data source, so neither triggers the unshipped-CSV gap.
+    """
+    if "csv" not in norm or _SUPPORTED_BROKER_RE.search(norm):
+        return False
+    return any(re.search(pat, norm) for pat in _CSV_SOURCE_PATTERNS)
+
+
 def recommend(
     query: str,
     metadata: dict[str, Any],
@@ -1213,20 +1241,25 @@ def recommend(
     assert primary_id is not None  # set in every non-gap path above
 
     missing_requirements: list[dict[str, str]] = []
+    dropped_secondary: list[dict[str, str]] = []
     if no_api:
         reason = workflow_paid_api_reason(workflows_by_id.get(primary_id, {}), skills_by_id)
         if reason is not None:
             missing_requirements.append({"kind": "paid_api", "id": primary_id, "detail": reason})
-        secondary_ids = [
-            wid
-            for wid in secondary_ids
-            if workflow_paid_api_reason(workflows_by_id.get(wid, {}), skills_by_id) is None
-        ]
+        kept_secondary: list[str] = []
+        for wid in secondary_ids:
+            drop_reason = workflow_paid_api_reason(workflows_by_id.get(wid, {}), skills_by_id)
+            if drop_reason is None:
+                kept_secondary.append(wid)
+            else:
+                dropped_secondary.append({"id": wid, "reason": f"requires paid API: {drop_reason}"})
+        secondary_ids = kept_secondary
 
     # CSV portfolio review is a separate, unshipped capability (#512). The
-    # Navigator accepts no file input, so a mention of CSV cannot make the
-    # Alpaca-backed portfolio workflow runnable, even if a path is in prose.
-    if goal_workflow_id == "core-portfolio-weekly" and "csv" in norm:
+    # Navigator accepts no file input, so a CSV *source* request cannot make
+    # the Alpaca-backed portfolio workflow runnable, even if a path is in
+    # prose. Merely mentioning CSV (e.g. exporting results) is not a gap.
+    if goal_workflow_id == "core-portfolio-weekly" and _wants_csv_portfolio_input(norm):
         missing_requirements.extend(
             [
                 {
@@ -1280,6 +1313,7 @@ def recommend(
             routing_diagnostics=routing_diagnostics,
             goal_match=goal_match,
             alternative_workflow=alternative_workflow,
+            dropped_secondary_workflows=dropped_secondary,
         )
 
     if matched is not None:
@@ -1357,6 +1391,7 @@ def recommend(
         routing_diagnostics=routing_diagnostics,
         goal_match=goal_match,
         alternative_workflow=alternative_workflow,
+        dropped_secondary_workflows=dropped_secondary,
     )
 
 
@@ -1377,6 +1412,7 @@ def _finalize_result(
     routing_diagnostics: dict[str, Any],
     goal_match: dict[str, Any],
     alternative_workflow: dict[str, Any] | None,
+    dropped_secondary_workflows: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     return {
         "query": query,
@@ -1394,6 +1430,7 @@ def _finalize_result(
         "routing_diagnostics": routing_diagnostics,
         "goal_match": goal_match,
         "alternative_workflow": alternative_workflow,
+        "dropped_secondary_workflows": dropped_secondary_workflows or [],
         "setup_path_ref": SETUP_PATH_REF,
     }
 
@@ -1450,6 +1487,7 @@ def render_text(result: dict[str, Any]) -> str:
                 lines.append(f"  - {s['display_name']} ({s['id']})")
         else:
             lines.append("Recommended workflow: (none usable for the requested goal)")
+            lines.append(f"Skillset: {result['skillset']['id']}")
     else:
         pw = result["primary_workflow"]
         lines.append(
@@ -1459,6 +1497,8 @@ def render_text(result: dict[str, Any]) -> str:
         )
         for sw in result["secondary_workflows"]:
             lines.append(f"Secondary: {sw['display_name']} ({sw['id']})")
+        for dropped in result["dropped_secondary_workflows"]:
+            lines.append(f"Dropped secondary (no-API): {dropped['id']} — {dropped['reason']}")
         lines.append(
             f"Skillset: {result['skillset']['id']} "
             f"(manifest_status={result['skillset']['manifest_status']})"
