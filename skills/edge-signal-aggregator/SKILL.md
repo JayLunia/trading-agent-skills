@@ -226,7 +226,7 @@ Each producer item (ticket, concept, theme, sector row, flow, hint) MAY carry:
   timestamp, compared as parsed timezone-aware datetimes (date-only and naive values are read
   as UTC), becomes the retained score. Equal, missing, or unparsable timestamps fall back to
   the highest `raw_score`, then a stable key (`signal_ref`, `source_file`), so ingestion order
-  never changes the result. A copy that carries a score older than the retained one is
+  never changes the result. Only ISO-8601 strings (or `YYYY-MM-DD`) are ordered; epoch numbers and compact forms such as `20261010` count as missing timestamps. Remaining full ties are broken by title, direction, tickers, and a canonical dump of the signal. A copy that carries a score older than the retained one is
   discarded, so a newer, lower score replaces an older, higher one. The discarded copies'
   scores and timestamps are listed in `deduplication_log[].discarded_copies`. Identical
   copies leave the score unchanged.

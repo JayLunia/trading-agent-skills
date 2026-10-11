@@ -148,7 +148,7 @@ Since schema 1.1, aggregation is idempotent and strict about score validity (Iss
   differ, the newest observation wins: the latest parsed timezone-aware timestamp (date-only
   and naive values read as UTC) supplies the retained score. Equal, missing, or unparsable
   timestamps keep the highest raw score, then a stable key, so ingestion order cannot change
-  the result. A newer, lower score replaces an older, higher one, and discarded copies are
+  the result. Only ISO-8601 strings (or `YYYY-MM-DD`) are ordered; epoch numbers and compact forms such as `20261010` count as missing timestamps. A newer, lower score replaces an older, higher one, and discarded copies are
   listed in `deduplication_log[].discarded_copies`.
 - **`score_scale`** (optional, per item or per document: `"0-1"` / `"0-100"`): declared scales
   are enforced strictly. NaN/infinity, negative, and out-of-range values are rejected into

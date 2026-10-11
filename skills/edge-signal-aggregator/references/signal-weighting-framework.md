@@ -66,7 +66,7 @@ Exact re-ingestions (same skill + `evidence_id`) collapse into one copy chosen b
 newest-observation rule: latest parsed timezone-aware timestamp wins; equal, missing, or
 unparsable timestamps keep the highest raw score, then a stable key (`signal_ref`,
 `source_file`). A newer, lower score therefore replaces an older, higher one, and ingestion
-order cannot change the result. Discarded copies are recorded in the deduplication log.
+order cannot change the result. Only ISO-8601 timestamp strings are ordered; epoch numbers and compact forms (`20261010`) count as missing. Discarded copies are recorded in the deduplication log.
 
 ### Normalization
 

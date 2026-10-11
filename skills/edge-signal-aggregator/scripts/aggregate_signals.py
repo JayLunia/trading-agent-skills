@@ -13,6 +13,7 @@ import glob
 import hashlib
 import json
 import math
+import re
 import sys
 from collections import defaultdict
 from copy import deepcopy
@@ -392,27 +393,18 @@ def calculate_recency_factor(timestamp_str: str | None, recency_config: dict[str
     if not timestamp_str:
         return recency_config.get("days_7_plus", 0.85)
 
-    try:
-        # Try ISO format first
-        if "T" in timestamp_str:
-            ts = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-        else:
-            ts = datetime.strptime(timestamp_str, "%Y-%m-%d")
-            ts = ts.replace(tzinfo=timezone.utc)
-
-        now = datetime.now(timezone.utc)
-        age_days = (now - ts).days
-
-        if age_days < 1:
-            return recency_config.get("within_24h", 1.0)
-        elif age_days <= 3:
-            return recency_config.get("days_1_to_3", 0.95)
-        elif age_days <= 7:
-            return recency_config.get("days_3_to_7", 0.90)
-        else:
-            return recency_config.get("days_7_plus", 0.85)
-    except (ValueError, TypeError):
+    ts = _parse_timestamp(timestamp_str)
+    if ts is None:
         return recency_config.get("days_7_plus", 0.85)
+
+    age_days = (datetime.now(timezone.utc) - ts).days
+    if age_days < 1:
+        return recency_config.get("within_24h", 1.0)
+    elif age_days <= 3:
+        return recency_config.get("days_1_to_3", 0.95)
+    elif age_days <= 7:
+        return recency_config.get("days_3_to_7", 0.90)
+    return recency_config.get("days_7_plus", 0.85)
 
 
 def extract_signals_from_edge_candidates(data: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -871,14 +863,33 @@ EXACT_MERGE_RULE = (
 )
 
 
+_TS_OFFSET_RE = re.compile(r"([+-])(\d{2})(?::?(\d{2}))?$")
+_TS_FRACTION_RE = re.compile(r"(\.\d+)")
+
+
 def _parse_timestamp(value) -> datetime | None:
-    """Parse an ISO timestamp or date to an aware datetime (naive values assume UTC)."""
+    """Parse an ISO-8601 timestamp or YYYY-MM-DD date to an aware datetime.
+
+    Only ISO-8601 strings are ordered; epoch numbers and compact forms such as
+    ``20261010`` return None. Naive values are read as UTC. The text is normalized
+    (``Z``/``+HHMM``/``+HH`` offsets, fractions truncated to 6 digits) so behavior is
+    identical on Python 3.10 through 3.14.
+    """
     if not isinstance(value, str) or not value.strip():
         return None
     text = value.strip()
     try:
         if "T" in text or " " in text:
-            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            text = text.replace(" ", "T", 1)
+            if text.endswith(("Z", "z")):
+                text = text[:-1] + "+00:00"
+            head, sep, tail = text.partition("T")
+            match = _TS_OFFSET_RE.search(tail)
+            if match:
+                hh, mm = match.group(2), match.group(3) or "00"
+                tail = tail[: match.start()] + f"{match.group(1)}{hh}:{mm}"
+            tail = _TS_FRACTION_RE.sub(lambda m: m.group(1)[:7], tail, count=1)
+            parsed = datetime.fromisoformat(head + sep + tail)
         else:
             parsed = datetime.strptime(text, "%Y-%m-%d")
     except ValueError:
@@ -893,7 +904,7 @@ def _score_or_zero(value) -> float:
 
 
 def _exact_copy_sort_key(sig: dict) -> tuple:
-    """Sort ascending so index 0 is the copy to retain."""
+    """Total order, ascending: index 0 is the copy to retain."""
     parsed = _parse_timestamp(sig.get("timestamp"))
     ts_rank = parsed.timestamp() if parsed is not None else float("-inf")
     return (
@@ -901,6 +912,10 @@ def _exact_copy_sort_key(sig: dict) -> tuple:
         -_score_or_zero(sig.get("raw_score")),
         str(sig.get("signal_ref", "")),
         str(sig.get("source_file", "")),
+        str(sig.get("title", "")),
+        str(sig.get("direction", "")),
+        _ticker_token(sig.get("tickers")),
+        json.dumps(sig, sort_keys=True, default=str),
     )
 
 
@@ -1329,25 +1344,29 @@ def aggregate_signals(
     )
     idempotency_check["duplicate_copies_merged"] = exact_copy_count
 
-    assumed_seen: set[tuple] = set()
+    assumed_by_key: dict[tuple, dict] = {}
     for sig in all_signals:
         if sig.get("score_scale_assumed"):
             key = (sig.get("skill"), sig.get("signal_ref"), sig.get("evidence_id"))
-            if key in assumed_seen:
-                continue
-            assumed_seen.add(key)
-            scale_assumptions_report.append(
-                {
-                    "skill": sig.get("skill"),
-                    "signal_ref": sig.get("signal_ref"),
-                    "value": sig.get("input_value", sig.get("raw_score")),
-                    "normalized_value": round(sig["raw_score"], 6)
-                    if _is_finite_score(sig.get("raw_score"))
-                    else None,
-                    "assumed_scale": "0-100",
-                    "source_file": sig.get("source_file"),
-                }
-            )
+            best = assumed_by_key.get(key)
+            if best is None or _exact_copy_sort_key(sig) < _exact_copy_sort_key(best):
+                assumed_by_key[key] = sig
+    for sig in sorted(
+        assumed_by_key.values(),
+        key=lambda x: (str(x.get("skill")), str(x.get("signal_ref")), str(x.get("evidence_id"))),
+    ):
+        scale_assumptions_report.append(
+            {
+                "skill": sig.get("skill"),
+                "signal_ref": sig.get("signal_ref"),
+                "value": sig.get("input_value", sig.get("raw_score")),
+                "normalized_value": round(sig["raw_score"], 6)
+                if _is_finite_score(sig.get("raw_score"))
+                else None,
+                "assumed_scale": "0-100",
+                "source_file": sig.get("source_file"),
+            }
+        )
 
     # Detect contradictions
     contradictions = detect_contradictions(deduped_signals)

@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from aggregate_signals import (
     DEFAULT_CONFIG,
+    _parse_timestamp,
     aggregate_signals,
     apply_contradiction_adjustments,
     are_signals_similar,
@@ -1443,3 +1444,76 @@ class TestReviewPr528Reporting:
     def test_markdown_high_conviction_label_uses_inclusive_threshold(self):
         md = generate_markdown_report(_aggregate())
         assert "High Conviction (>=0.5)" in md
+
+
+class TestReviewRound2Determinism:
+    def test_scale_report_source_file_is_order_independent(self):
+        def doc(name):
+            return _theme_doc(
+                {
+                    "themes": [
+                        {
+                            "theme_id": "t1",
+                            "theme_name": "AI Theme",
+                            "heat": 7.2,
+                            "tickers": ["NVDA"],
+                            "direction": "up",
+                        }
+                    ]
+                },
+                source_file=name,
+            )
+
+        a, b = doc("a.json"), doc("b.json")
+        fwd = _aggregate(themes=[a, b])["scale_assumptions_report"]
+        rev = _aggregate(themes=[b, a])["scale_assumptions_report"]
+        assert fwd == rev
+        assert len(fwd) == 1
+
+    @pytest.mark.parametrize(
+        "ts",
+        [
+            "2026-10-10T12:00:00+0000",
+            "2026-10-10T12:00:00.123456789Z",
+            "2026-10-10T12:00:00+00",
+        ],
+    )
+    def test_parse_timestamp_normalizes_py310_hostile_forms(self, ts):
+        parsed = _parse_timestamp(ts)
+        assert parsed is not None
+        assert parsed.utcoffset().total_seconds() == 0
+        assert (parsed.year, parsed.month, parsed.day, parsed.hour) == (2026, 10, 10, 12)
+
+    def test_parse_timestamp_nanosecond_fraction_truncated(self):
+        parsed = _parse_timestamp("2026-10-10T12:00:00.123456789Z")
+        assert parsed.microsecond == 123456
+
+    def test_non_iso_timestamps_are_not_ordered(self):
+        assert _parse_timestamp(1760097600) is None
+        assert _parse_timestamp("20261010") is None
+        assert _parse_timestamp("1760097600") is None
+
+    def test_full_tie_with_different_title_is_order_independent(self):
+        def sig(title):
+            return {
+                "skill": "edge_candidate_agent",
+                "signal_ref": "T1",
+                "source_file": "a.json",
+                "evidence_id": "ev",
+                "raw_score": 0.5,
+                "timestamp": "2026-10-10T00:00:00Z",
+                "title": title,
+                "direction": "LONG",
+                "tickers": ["NVDA"],
+            }
+
+        config = load_config(None)
+        one, _ = deduplicate_signals([sig("Alpha"), sig("Beta")], config)
+        two, _ = deduplicate_signals([sig("Beta"), sig("Alpha")], config)
+        assert one[0]["title"] == two[0]["title"]
+
+    def test_recency_naive_t_timestamp_treated_as_utc(self):
+        cfg = {"within_24h": 1.0, "days_1_to_3": 0.95, "days_3_to_7": 0.9, "days_7_plus": 0.85}
+        naive = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        assert calculate_recency_factor(naive, cfg) == 1.0
+        assert calculate_recency_factor(naive.replace("T", "T", 1) + "+0000", cfg) == 1.0
