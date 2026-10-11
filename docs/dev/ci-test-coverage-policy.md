@@ -18,6 +18,17 @@ Script-free production skills must declare `knowledge_only: true` in
 `skills-index.yaml`. The marker is invalid for non-production skills and for a
 skill that contains executable Python scripts at any depth under `scripts/`.
 
+## Matrix requirements and uv.lock
+
+List a package that `pyproject.toml` and `uv.lock` already manage (for example
+`pyarrow`) in `matrix.<id>.requirements` without a version. The version then
+comes from `uv.lock`: CI enforces it through `uv sync --locked`, and
+`ci_test_matrix.py install` pins every such bare requirement to the locked
+version for local runs. Dependabot bumps therefore need no policy edit. A
+specifier is a deliberate contract, such as `pandas-market-calendars`, and must
+be edited by hand when the pinned version changes. `install --check` names the
+policy field to edit when an installed version no longer satisfies it.
+
 ## Coverage measurement
 
 Coverage percentages include executable code and exclude all files matching

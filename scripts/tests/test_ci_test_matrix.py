@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from packaging.utils import canonicalize_name
 
 from scripts.ci_test_matrix import (
     POLICY_GATE_ID,
@@ -25,6 +26,7 @@ from scripts.ci_test_matrix import (
     executable_test_inventory,
     install,
     load_policy,
+    locked_versions,
     main,
     matrix,
     run,
@@ -876,3 +878,173 @@ def test_list_command_emits_no_expiry_warning(monkeypatch, tmp_path, capsys):
     captured = capsys.readouterr()
     assert captured.out.split() == ["alpha"]
     assert captured.err == ""
+
+
+def _write_lock(root: Path, *packages: tuple[str, str]) -> None:
+    body = "version = 1\n"
+    for name, version in packages:
+        body += f'\n[[package]]\nname = "{name}"\nversion = "{version}"\n'
+    (root / "uv.lock").write_text(body, encoding="utf-8")
+
+
+def _capture_install_argv(monkeypatch) -> list[list[str]]:
+    calls: list[list[str]] = []
+    monkeypatch.setattr("scripts.ci_test_matrix.shutil.which", lambda _name: None)
+    monkeypatch.setattr(
+        "scripts.ci_test_matrix.subprocess.run",
+        lambda command, check: calls.append(command),
+    )
+    return calls
+
+
+def test_policy_requirements_agree_with_uv_lock():
+    # Issue #525: a specifier duplicated in the policy must never drift from uv.lock.
+    pytest.importorskip("tomllib" if sys.version_info >= (3, 11) else "tomli")
+    from packaging.requirements import Requirement as Req
+
+    from scripts.ci_test_matrix import ROOT as REPO_ROOT
+
+    locked = locked_versions(REPO_ROOT)
+    assert locked, "uv.lock must be readable"
+    entries = build_entries(REPO_ROOT, load_policy(REPO_ROOT, today=TODAY))
+    assert entries["repo-scripts"].requirements == ("pyarrow",)
+    for entry in entries.values():
+        for raw in entry.requirements:
+            requirement = Req(raw)
+            if requirement.marker is not None and not requirement.marker.evaluate():
+                continue
+            versions = locked.get(canonicalize_name(requirement.name))
+            if not requirement.specifier or versions is None:
+                continue
+            assert any(
+                requirement.specifier.contains(version, prereleases=True) for version in versions
+            ), f"{entry.id}: {raw} is not satisfied by uv.lock {sorted(versions)}"
+
+
+@pytest.mark.parametrize("installed", ["25.0.1", "26.0.0"])
+def test_install_check_bare_requirement_follows_any_installed_version(monkeypatch, installed):
+    # Documents the contract: a bare entry accepts whatever version uv.lock installed. The
+    # regression guard that repo-scripts stays bare is the agreement test above.
+    monkeypatch.setattr("scripts.ci_test_matrix.metadata.version", lambda name: installed)
+    entry = TestEntry("repo-scripts", ("tests",), "scripts", requirements=("pyarrow",))
+    install(entry, check=True)
+
+
+def test_install_check_drift_error_names_the_policy_field(monkeypatch):
+    monkeypatch.setattr("scripts.ci_test_matrix.metadata.version", lambda name: "25.0.1")
+    entry = TestEntry("repo-scripts", ("tests",), "scripts", requirements=("pyarrow==23.0.1",))
+    with pytest.raises(MatrixError) as excinfo:
+        install(entry, check=True)
+    message = str(excinfo.value)
+    assert "needs pyarrow==23.0.1" in message
+    assert "config/ci-test-policy.yaml" in message
+    assert "matrix.repo-scripts.requirements" in message
+
+
+def test_install_check_missing_error_names_the_policy_field(monkeypatch):
+    from importlib.metadata import PackageNotFoundError
+
+    def missing(name):
+        raise PackageNotFoundError(name)
+
+    monkeypatch.setattr("scripts.ci_test_matrix.metadata.version", missing)
+    entry = TestEntry("alpha", ("tests",), "scripts", requirements=("pyarrow",))
+    with pytest.raises(MatrixError, match=r"matrix\.alpha\.requirements"):
+        install(entry, check=True)
+
+
+def test_install_pins_bare_requirements_from_uv_lock(monkeypatch, tmp_path):
+    _write_lock(tmp_path, ("pyarrow", "25.0.1"), ("lxml", "6.0.0"))
+    calls = _capture_install_argv(monkeypatch)
+    entry = TestEntry(
+        "alpha",
+        ("tests",),
+        "scripts",
+        requirements=("pyarrow", "statsmodels>=0.14,<0.15", "lxml"),
+    )
+
+    install(entry, root=tmp_path)
+
+    assert calls == [
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--",
+            "pyarrow==25.0.1",
+            "statsmodels>=0.14,<0.15",
+            "lxml==6.0.0",
+        ]
+    ]
+    assert entry.requirements == ("pyarrow", "statsmodels>=0.14,<0.15", "lxml")
+
+
+def test_install_normalises_names_when_pinning(monkeypatch, tmp_path):
+    _write_lock(tmp_path, ("pandas-market-calendars", "5.2.2"))
+    calls = _capture_install_argv(monkeypatch)
+    entry = TestEntry("alpha", ("tests",), "scripts", requirements=("Pandas_Market_Calendars",))
+
+    install(entry, root=tmp_path)
+
+    assert calls[0][-1] == "Pandas_Market_Calendars==5.2.2"
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "pyarrow>=1",
+        'pyarrow; python_version >= "3"',
+        "pyarrow[extra]",
+        "pyarrow @ https://example.com/pyarrow.whl",
+        "unlocked-package",
+    ],
+)
+def test_install_passes_through_non_bare_or_unlocked_requirements(
+    monkeypatch, tmp_path, requirement
+):
+    _write_lock(tmp_path, ("pyarrow", "25.0.1"))
+    calls = _capture_install_argv(monkeypatch)
+    entry = TestEntry("alpha", ("tests",), "scripts", requirements=(requirement,))
+
+    install(entry, root=tmp_path)
+
+    assert calls[0][-1] == requirement
+
+
+def test_install_leaves_forked_package_bare(monkeypatch, tmp_path):
+    _write_lock(tmp_path, ("pyarrow", "25.0.1"), ("pyarrow", "24.0.0"))
+    calls = _capture_install_argv(monkeypatch)
+    entry = TestEntry("alpha", ("tests",), "scripts", requirements=("pyarrow",))
+
+    install(entry, root=tmp_path)
+
+    assert calls[0][-1] == "pyarrow"
+
+
+def test_install_without_usable_lock_stays_bare_and_warns_only_on_unparseable(
+    monkeypatch, tmp_path, capsys
+):
+    calls = _capture_install_argv(monkeypatch)
+    entry = TestEntry("alpha", ("tests",), "scripts", requirements=("pyarrow",))
+
+    install(entry, root=tmp_path)
+    assert calls[-1][-1] == "pyarrow"
+    assert capsys.readouterr().err == ""
+
+    (tmp_path / "uv.lock").write_text("not [valid toml", encoding="utf-8")
+    install(entry, root=tmp_path)
+    assert calls[-1][-1] == "pyarrow"
+    assert "uv.lock" in capsys.readouterr().err
+
+
+def test_locked_versions_collects_every_version_of_a_duplicated_package(tmp_path):
+    _write_lock(tmp_path, ("PyArrow", "25.0.1"), ("pyarrow", "24.0.0"), ("lxml", "6.0.0"))
+
+    assert locked_versions(tmp_path) == {"pyarrow": {"25.0.1", "24.0.0"}, "lxml": {"6.0.0"}}
+
+
+def test_locked_versions_never_raises(tmp_path):
+    assert locked_versions(tmp_path) == {}
+    (tmp_path / "uv.lock").write_text("not [valid toml", encoding="utf-8")
+    assert locked_versions(tmp_path) == {}

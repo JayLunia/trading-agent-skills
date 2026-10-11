@@ -19,6 +19,7 @@ from typing import TextIO
 
 import yaml
 from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
 from yaml.resolver import BaseResolver
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -546,7 +547,40 @@ def matrix(entries: dict[str, TestEntry]) -> dict[str, list[dict[str, object]]]:
     }
 
 
-def install(entry: TestEntry, *, check: bool = False) -> None:
+def locked_versions(root: Path = ROOT) -> dict[str, set[str]]:
+    """Map canonical package names to every version recorded in uv.lock.
+
+    A set, because uv.lock lists a package more than once under resolution forks.
+    Returns {} when the lock or a TOML parser is unavailable, or the lock is invalid.
+    """
+    try:
+        try:
+            import tomllib
+        except ModuleNotFoundError:  # Python 3.10
+            import tomli as tomllib
+        payload = tomllib.loads((root / "uv.lock").read_text(encoding="utf-8"))
+    except (ImportError, OSError, ValueError):
+        return {}
+    versions: dict[str, set[str]] = {}
+    for package in payload.get("package", ()):
+        name, version = package.get("name"), package.get("version")
+        if isinstance(name, str) and isinstance(version, str):
+            versions.setdefault(canonicalize_name(name), set()).add(version)
+    return versions
+
+
+def _pin_to_lock(raw: str, locked: dict[str, set[str]]) -> str:
+    """Pin a bare lock-managed requirement to its uv.lock version; pass others through."""
+    requirement = Requirement(raw)
+    if requirement.specifier or requirement.marker or requirement.url or requirement.extras:
+        return raw
+    versions = locked.get(canonicalize_name(requirement.name), set())
+    if len(versions) != 1:
+        return raw
+    return f"{raw}=={next(iter(versions))}"
+
+
+def install(entry: TestEntry, *, check: bool = False, root: Path = ROOT) -> None:
     if check:
         for raw in entry.requirements:
             requirement = Requirement(raw)
@@ -554,21 +588,34 @@ def install(entry: TestEntry, *, check: bool = False) -> None:
                 continue
             if requirement.url or requirement.extras:
                 raise MatrixError(f"cannot verify installed requirement: {raw}")
+            hint = (
+                f"; edit {POLICY_PATH} matrix.{entry.id}.requirements "
+                "(drop the version if it only duplicates uv.lock; for a deliberate contract pin, "
+                "update every row that pins it, see docs/dev/ci-test-coverage-policy.md)"
+            )
             try:
                 installed = metadata.version(requirement.name)
             except metadata.PackageNotFoundError as exc:
-                raise MatrixError(f"locked environment missing requirement: {raw}") from exc
+                raise MatrixError(f"locked environment missing requirement: {raw}{hint}") from exc
             if installed not in requirement.specifier:
                 raise MatrixError(
-                    f"locked environment has {requirement.name}=={installed}, needs {raw}"
+                    f"locked environment has {requirement.name}=={installed}, needs {raw}{hint}"
                 )
         return
     if entry.requirements:
+        locked = locked_versions(root)
+        if not locked and (root / "uv.lock").is_file():
+            print(
+                "WARNING: cannot read uv.lock (invalid file, or no TOML parser: install tomli "
+                "on Python 3.10); installing requirements unpinned",
+                file=sys.stderr,
+            )
+        requirements = tuple(_pin_to_lock(raw, locked) for raw in entry.requirements)
         uv = shutil.which("uv")
         command = (
-            [uv, "pip", "install", "--python", sys.executable, "--", *entry.requirements]
+            [uv, "pip", "install", "--python", sys.executable, "--", *requirements]
             if uv
-            else [sys.executable, "-m", "pip", "install", "--", *entry.requirements]
+            else [sys.executable, "-m", "pip", "install", "--", *requirements]
         )
         subprocess.run(command, check=True)
 
