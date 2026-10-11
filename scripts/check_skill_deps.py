@@ -204,6 +204,13 @@ SMOKE_CONTRACTS: dict[str, list[SmokeContract]] = {
             expect_out=("usage:", "--lookback-weeks"),
         )
     ],
+    "economic-calendar-fetcher": [
+        SmokeContract(
+            "skills/economic-calendar-fetcher/scripts/get_economic_calendar.py",
+            ("--help",),
+            expect_out=("usage:", "--api-key"),
+        )
+    ],
     "crypto-regime-analyzer": [
         SmokeContract(
             "skills/crypto-regime-analyzer/scripts/crypto_regime_analyzer.py",

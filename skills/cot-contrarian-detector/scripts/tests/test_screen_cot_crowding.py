@@ -286,14 +286,14 @@ class TestCotClientBackoff:
             ]
         )
         # Monkeypatch time.sleep via the module under test's imported `time`.
-        import screen_cot_crowding as mod
+        import time as time_module
 
-        original_sleep = mod.time.sleep
-        mod.time.sleep = lambda _seconds: None
+        global_sleep_limit = time_module.sleep
+        time_module.sleep = lambda _seconds: None
         try:
             data = client.get_market_list()
         finally:
-            mod.time.sleep = original_sleep
+            time_module.sleep = global_sleep_limit
         assert data == [{"symbol": "ES", "name": "S&P 500 E-Mini (ES)"}]
         assert len(client.session.calls) == 2
 
@@ -407,14 +407,14 @@ class TestApiKeyRedactionOnErrorPaths:
         client = CotClient(api_key=self.SECRET, sleep_seconds=0.0)
         client.session = _RaisingSession(self._connection_error())
 
-        import screen_cot_crowding as mod
+        import time as time_module
 
-        original_sleep = mod.time.sleep
-        mod.time.sleep = lambda _seconds: None
+        global_sleep_limit = time_module.sleep
+        time_module.sleep = lambda _seconds: None
         try:
             rows, error = client.get_report("ES", "2020-01-01", "2026-07-07")
         finally:
-            mod.time.sleep = original_sleep
+            time_module.sleep = global_sleep_limit
 
         captured = capsys.readouterr()
 
@@ -473,15 +473,15 @@ class TestApiKeyRedactionOnErrorPaths:
         client = CotClient(api_key=self.SECRET, sleep_seconds=0.0)
         client.session = _RaisingSession(self._connection_error())
 
-        import screen_cot_crowding as mod
+        import time as time_module
 
-        original_sleep = mod.time.sleep
-        mod.time.sleep = lambda _seconds: None
+        global_sleep_limit = time_module.sleep
+        time_module.sleep = lambda _seconds: None
         try:
             with pytest.raises(RuntimeError) as exc_info:
                 client.get_market_list()
         finally:
-            mod.time.sleep = original_sleep
+            time_module.sleep = global_sleep_limit
 
         assert self.SECRET not in str(exc_info.value)
         assert "***REDACTED***" in str(exc_info.value)
@@ -496,14 +496,14 @@ class TestApiKeyRedactionOnErrorPaths:
         client = CotClient(api_key=self.SECRET, sleep_seconds=0.0)
         client.session = _RaisingSession(self._connection_error())
 
-        import screen_cot_crowding as mod
+        import time as time_module
 
-        original_sleep = mod.time.sleep
-        mod.time.sleep = lambda _seconds: None
+        global_sleep_limit = time_module.sleep
+        time_module.sleep = lambda _seconds: None
         try:
             rows, error = client.get_report("ES", "2020-01-01", "2026-07-07")
         finally:
-            mod.time.sleep = original_sleep
+            time_module.sleep = global_sleep_limit
 
         args = default_args(lookback_weeks=4, short_lookback_weeks=2)
         result = analyze_market("ES", rows, error, args)
