@@ -62,6 +62,12 @@ idempotency: re-ingesting identical evidence must not inflate the score. Agreeme
 credit instead requires distinct evidence IDs, distinct event fingerprints, and
 distinct skills (agreement_tier = min of the three).
 
+Exact re-ingestions (same skill + `evidence_id`) collapse into one copy chosen by the
+newest-observation rule: latest parsed timezone-aware timestamp wins; equal, missing, or
+unparsable timestamps keep the highest raw score, then a stable key (`signal_ref`,
+`source_file`). A newer, lower score therefore replaces an older, higher one, and ingestion
+order cannot change the result. Discarded copies are recorded in the deduplication log.
+
 ### Normalization
 
 Raw scores from different skills are normalized to [0, 1]:

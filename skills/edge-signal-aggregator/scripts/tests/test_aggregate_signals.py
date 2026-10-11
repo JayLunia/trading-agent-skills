@@ -1308,3 +1308,138 @@ class TestReviewRound3Fixes:
         ]
         result = _aggregate(themes=docs)
         assert len(result["scale_assumptions_report"]) == 1
+
+
+def _stamped(score, timestamp, source_file, ticket_id="T001", evidence_id="ev-1"):
+    ticket = _candidate_ticket(ticket_id=ticket_id, score=score)
+    ticket["evidence_id"] = evidence_id
+    if timestamp is not None:
+        ticket["timestamp"] = timestamp
+    return _candidate_doc(ticket, source_file, doc={"score_scale": "0-1"})
+
+
+class TestNewestObservationWins:
+    """PR #528 review: the newest re-ingested observation determines the score."""
+
+    def _score(self, *docs):
+        result = _aggregate(edge_candidates=list(docs))
+        assert len(result["ranked_signals"]) == 1
+        return result
+
+    def test_newer_lower_score_wins_in_either_order(self):
+        old = _stamped(0.9, "2026-10-09T00:00:00Z", "a.json")
+        new = _stamped(0.5, "2026-10-10T00:00:00Z", "b.json")
+        fwd = self._score(old, new)
+        rev = self._score(new, old)
+        newest_only = self._score(new)
+        want = newest_only["ranked_signals"][0]["composite_score"]
+        assert fwd["ranked_signals"][0]["composite_score"] == pytest.approx(want)
+        assert rev["ranked_signals"][0]["composite_score"] == pytest.approx(want)
+        contrib = fwd["ranked_signals"][0]["contributing_skills"][0]
+        assert contrib["raw_score"] == 0.5
+
+    def test_log_records_discarded_copy_scores_and_timestamps(self):
+        old = _stamped(0.9, "2026-10-09T00:00:00Z", "a.json")
+        new = _stamped(0.5, "2026-10-10T00:00:00Z", "b.json")
+        log = self._score(old, new)["deduplication_log"][0]
+        assert log["retained_copy"]["raw_score"] == 0.5
+        assert log["discarded_copies"] == [
+            {
+                "signal_ref": "T001",
+                "source_file": "a.json",
+                "raw_score": 0.9,
+                "timestamp": "2026-10-09T00:00:00Z",
+            }
+        ]
+        assert "newest timestamp wins" in log["selection_rule"]
+
+    def test_identical_reingestion_unchanged(self):
+        one = self._score(_stamped(0.7, "2026-10-09T00:00:00Z", "a.json"))
+        many = self._score(*[_stamped(0.7, "2026-10-09T00:00:00Z", f"f{i}.json") for i in range(5)])
+        assert many["ranked_signals"][0]["composite_score"] == pytest.approx(
+            one["ranked_signals"][0]["composite_score"]
+        )
+
+    def test_mixed_timezone_offsets_compared_as_instants(self):
+        # 2026-10-10T00:30:00-05:00 is 05:30Z, later than 2026-10-10T04:00:00Z even
+        # though it is lexicographically smaller.
+        later = _stamped(0.5, "2026-10-10T00:30:00-05:00", "a.json")
+        earlier = _stamped(0.9, "2026-10-10T04:00:00Z", "b.json")
+        for docs in ((later, earlier), (earlier, later)):
+            sig = self._score(*docs)["ranked_signals"][0]
+            assert sig["contributing_skills"][0]["raw_score"] == 0.5
+
+    def test_equal_timestamp_tie_keeps_highest_score_in_either_order(self):
+        a = _stamped(0.4, "2026-10-10T00:00:00Z", "a.json")
+        b = _stamped(0.8, "2026-10-10T00:00:00Z", "b.json")
+        for docs in ((a, b), (b, a)):
+            sig = self._score(*docs)["ranked_signals"][0]
+            assert sig["contributing_skills"][0]["raw_score"] == 0.8
+
+    def test_missing_or_unparsable_timestamp_loses_to_dated_copy(self):
+        dated = _stamped(0.3, "2026-10-01", "a.json")
+        for other_ts in (None, "not-a-date"):
+            other = _stamped(0.9, other_ts, "b.json")
+            for docs in ((dated, other), (other, dated)):
+                sig = self._score(*docs)["ranked_signals"][0]
+                assert sig["contributing_skills"][0]["raw_score"] == 0.3
+
+    def test_all_missing_timestamps_keep_highest_score(self):
+        a = _stamped(0.3, None, "a.json")
+        b = _stamped(0.6, None, "b.json")
+        for docs in ((a, b), (b, a)):
+            sig = self._score(*docs)["ranked_signals"][0]
+            assert sig["contributing_skills"][0]["raw_score"] == 0.6
+
+
+class TestReviewPr528Reporting:
+    def test_scale_assumption_report_keeps_original_value(self):
+        doc = _theme_doc(
+            {
+                "themes": [
+                    {
+                        "theme_id": "t1",
+                        "theme_name": "AI Theme",
+                        "heat": 7.2,
+                        "tickers": ["NVDA"],
+                        "direction": "up",
+                    }
+                ]
+            }
+        )
+        entry = _aggregate(themes=[doc])["scale_assumptions_report"][0]
+        assert entry["value"] == 7.2
+        assert entry["normalized_value"] == pytest.approx(0.072)
+        assert entry["assumed_scale"] == "0-100"
+
+    def test_markdown_renders_none_contributor_score_as_na(self):
+        signal = {
+            "skill": "theme_detector",
+            "signal_ref": "m",
+            "raw_score": 0.8,
+            "title": "T",
+            "contributing_skills": [
+                {"skill": "sector_analyst", "signal_ref": "e2", "raw_score": None},
+                {"skill": "edge_candidate_agent", "signal_ref": "e3", "raw_score": 0.8},
+            ],
+        }
+        scored = calculate_composite_score(signal, load_config(None))
+        result = _aggregate()
+        result["ranked_signals"] = [
+            {
+                "rank": 1,
+                "title": "T",
+                "composite_score": 0.9,
+                "tickers": [],
+                "direction": "LONG",
+                "time_horizon": "x",
+                "contributing_skills": scored["contributing_skills"],
+                "confidence_breakdown": scored["confidence_breakdown"],
+            }
+        ]
+        md = generate_markdown_report(result)
+        assert "sector_analyst: n/a (e2)" in md
+
+    def test_markdown_high_conviction_label_uses_inclusive_threshold(self):
+        md = generate_markdown_report(_aggregate())
+        assert "High Conviction (>=0.5)" in md

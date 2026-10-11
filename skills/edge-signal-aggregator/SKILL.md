@@ -164,15 +164,30 @@ python3 skills/edge-signal-aggregator/scripts/aggregate_signals.py \
   ],
   "deduplication_log": [
     {
-      "merged_into": "sig_001",
-      "duplicates_removed": ["theme_detector:ai_compute", "edge_hints:datacenter_demand"],
-      "similarity_score": 0.92
+      "merged_into": "edge_candidate_agent:ticket_001",
+      "duplicates_removed": ["edge_candidate_agent:ticket_001@reports/ticket_001.json"],
+      "similarity_score": 1.0,
+      "reason": "same evidence re-ingested",
+      "selection_rule": "newest timestamp wins; ties, missing, or unparsable timestamps keep the highest raw_score, then a stable key",
+      "retained_copy": {
+        "signal_ref": "ticket_001",
+        "source_file": "reports/rerun.json",
+        "raw_score": 0.5,
+        "timestamp": "2026-10-10T00:00:00Z"
+      },
+      "discarded_copies": [
+        {
+          "signal_ref": "ticket_001",
+          "source_file": "reports/ticket_001.json",
+          "raw_score": 0.9,
+          "timestamp": "2026-10-09T00:00:00Z"
+        }
+      ]
     },
     {
-      "merged_into": "edge_candidate_agent:ticket_2026-03-01_001",
-      "duplicates_removed": ["edge_candidate_agent:ticket_2026-03-01_001"],
-      "similarity_score": 1.0,
-      "reason": "same evidence re-ingested"
+      "merged_into": "edge_candidate_agent:ticket_001",
+      "duplicates_removed": ["theme_detector:ai_compute"],
+      "similarity_score": 0.9
     }
   ],
   "invalid_signals": [
@@ -188,11 +203,12 @@ python3 skills/edge-signal-aggregator/scripts/aggregate_signals.py \
   ],
   "scale_assumptions_report": [
     {
-      "skill": "edge_candidate_agent",
-      "signal_ref": "ticket_002",
+      "skill": "theme_detector",
+      "signal_ref": "ai_compute",
       "value": 7.2,
+      "normalized_value": 0.072,
       "assumed_scale": "0-100",
-      "source_file": "reports/edge_candidate_agent_2026-03-01.json"
+      "source_file": "reports/theme_detector.json"
     }
   ]
 }
@@ -202,16 +218,25 @@ python3 skills/edge-signal-aggregator/scripts/aggregate_signals.py \
 
 Each producer item (ticket, concept, theme, sector row, flow, hint) MAY carry:
 
-- `evidence_id` — a stable identifier for the underlying evidence. Re-ingesting the same
-  evidence (same skill + `evidence_id`) never changes the aggregate score; without this key a
+- `evidence_id` — a stable identifier for the underlying evidence. Without this key a
   deterministic fallback is derived from skill, signal reference, title, tickers, and direction
-  (timestamps are excluded so refreshed timestamps cannot forge a new identity). When copies carry different timestamps, the merged primary keeps the newest one (lexicographic comparison over same-format ISO strings), so ingestion order cannot change the score.
+  (timestamps are excluded so refreshed timestamps cannot forge a new identity). Re-ingesting
+  the same evidence (same skill + `evidence_id`) never adds a bonus: all copies collapse into
+  one. When the copies differ, the **newest observation wins**: the copy with the latest
+  timestamp, compared as parsed timezone-aware datetimes (date-only and naive values are read
+  as UTC), becomes the retained score. Equal, missing, or unparsable timestamps fall back to
+  the highest `raw_score`, then a stable key (`signal_ref`, `source_file`), so ingestion order
+  never changes the result. A copy that carries a score older than the retained one is
+  discarded, so a newer, lower score replaces an older, higher one. The discarded copies'
+  scores and timestamps are listed in `deduplication_log[].discarded_copies`. Identical
+  copies leave the score unchanged.
 - `score_scale` — `"0-1"` or `"0-100"`, declaring the raw score's scale. Declared scales are
   enforced strictly: NaN/infinity/negative/out-of-range values are rejected into
   `invalid_signals`, never converted into maximum confidence. A present-but-unparsable
   declaration (`""`, `"foo"`) is also rejected (`missing_scale`). If the key is absent, values
   in (1, 100] are divided by 100 and flagged `score_scale_assumed: true` plus a
-  `scale_assumptions_report` entry; values > 100 are rejected.
+  `scale_assumptions_report` entry (`value` is the original input, `normalized_value` the
+  0-1 score used); values > 100 are rejected.
 
 ### Agreement rule (Issue #510)
 
@@ -236,7 +261,7 @@ The markdown report provides a human-readable dashboard:
 - Total Input Signals: 42
 - Unique After Dedup: 28
 - Contradictions: 3
-- High Conviction (>0.7): 12
+- High Conviction (>=0.5): 12
 
 ## Top 10 Edge Ideas by Conviction
 

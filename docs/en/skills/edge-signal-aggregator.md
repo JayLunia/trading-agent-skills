@@ -142,14 +142,20 @@ python3 skills/edge-signal-aggregator/scripts/aggregate_signals.py \
 Since schema 1.1, aggregation is idempotent and strict about score validity (Issue #510):
 
 - **`evidence_id`** (optional, per item): stable evidence identity. Re-ingesting the same
-  evidence (same skill + `evidence_id`) never changes the aggregate score. Without it a
+  evidence (same skill + `evidence_id`) never adds a bonus. Without it a
   deterministic fallback is derived from skill, signal reference, title, tickers, and direction
-  (timestamps excluded, so refreshed timestamps cannot forge a new identity). When copies carry different timestamps, the merged primary keeps the newest one (lexicographic comparison over same-format ISO strings), so ingestion order cannot change the score.
+  (timestamps excluded, so refreshed timestamps cannot forge a new identity). When copies
+  differ, the newest observation wins: the latest parsed timezone-aware timestamp (date-only
+  and naive values read as UTC) supplies the retained score. Equal, missing, or unparsable
+  timestamps keep the highest raw score, then a stable key, so ingestion order cannot change
+  the result. A newer, lower score replaces an older, higher one, and discarded copies are
+  listed in `deduplication_log[].discarded_copies`.
 - **`score_scale`** (optional, per item or per document: `"0-1"` / `"0-100"`): declared scales
   are enforced strictly. NaN/infinity, negative, and out-of-range values are rejected into
   `invalid_signals`; a present-but-unparsable declaration (`""`, `"foo"`) is rejected as
   `missing_scale`. When the key is absent, values in (1, 100] are assumed 0-100 and flagged
-  (`score_scale_assumed: true` + `scale_assumptions_report`); values > 100 are rejected.
+  (`score_scale_assumed: true` + `scale_assumptions_report` with the original `value` and the
+  `normalized_value`); values > 100 are rejected.
 - **Agreement rule**: bonuses fire on `agreement_tier = min(distinct evidence ids, distinct
   event fingerprints, distinct skills)`. Verbatim cross-skill restatements (identical normalized
   title + tickers) count once and cannot self-confirm; re-ingested duplicates earn nothing.

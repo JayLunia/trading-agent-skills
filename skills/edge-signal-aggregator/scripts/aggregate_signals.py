@@ -319,6 +319,7 @@ def _resolve_item_score(raw_score, item, doc, skill, signal_ref, title, source_f
         )
     payload = {
         "raw_score": raw_value,
+        "input_value": raw_score,
         "score_scale_assumed": status == "assumed_scale",
         "declared_scale": declared_scale,
     }
@@ -458,6 +459,7 @@ def extract_signals_from_edge_candidates(data: list[dict]) -> tuple[list[dict], 
                 "title": title,
                 "raw_score": payload["raw_score"],
                 "score_scale_assumed": payload["score_scale_assumed"],
+                "input_value": payload["input_value"],
                 "evidence_id": _default_evidence_id(
                     "edge_candidate_agent",
                     signal_ref,
@@ -516,6 +518,7 @@ def extract_signals_from_concepts(data: list[dict]) -> tuple[list[dict], list[di
                 "title": title,
                 "raw_score": payload["raw_score"],
                 "score_scale_assumed": payload["score_scale_assumed"],
+                "input_value": payload["input_value"],
                 "evidence_id": _default_evidence_id(
                     "edge_concept_synthesizer",
                     signal_ref,
@@ -580,6 +583,7 @@ def extract_signals_from_themes(data: list[dict]) -> tuple[list[dict], list[dict
                 "title": title,
                 "raw_score": payload["raw_score"],
                 "score_scale_assumed": payload["score_scale_assumed"],
+                "input_value": payload["input_value"],
                 "evidence_id": _default_evidence_id(
                     "theme_detector",
                     signal_ref,
@@ -644,6 +648,7 @@ def extract_signals_from_sectors(data: list[dict]) -> tuple[list[dict], list[dic
                 "title": title,
                 "raw_score": payload["raw_score"],
                 "score_scale_assumed": payload["score_scale_assumed"],
+                "input_value": payload["input_value"],
                 "evidence_id": _default_evidence_id(
                     "sector_analyst",
                     signal_ref,
@@ -724,6 +729,7 @@ def extract_signals_from_institutional(data: list[dict]) -> tuple[list[dict], li
                 "title": title,
                 "raw_score": payload["raw_score"],
                 "score_scale_assumed": payload["score_scale_assumed"],
+                "input_value": payload["input_value"],
                 "evidence_id": _default_evidence_id(
                     "institutional_flow_tracker",
                     signal_ref,
@@ -779,6 +785,7 @@ def extract_signals_from_hints(data: list[dict]) -> tuple[list[dict], list[dict]
                 "title": title,
                 "raw_score": payload["raw_score"],
                 "score_scale_assumed": payload["score_scale_assumed"],
+                "input_value": payload["input_value"],
                 "evidence_id": _default_evidence_id(
                     "edge_hint_extractor",
                     signal_ref,
@@ -858,6 +865,54 @@ def _contributor_entry(sig: dict) -> dict:
     return entry
 
 
+EXACT_MERGE_RULE = (
+    "newest timestamp wins; ties, missing, or unparsable timestamps keep the "
+    "highest raw_score, then a stable key"
+)
+
+
+def _parse_timestamp(value) -> datetime | None:
+    """Parse an ISO timestamp or date to an aware datetime (naive values assume UTC)."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    try:
+        if "T" in text or " " in text:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        else:
+            parsed = datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _score_or_zero(value) -> float:
+    return float(value) if _is_finite_score(value) else 0.0
+
+
+def _exact_copy_sort_key(sig: dict) -> tuple:
+    """Sort ascending so index 0 is the copy to retain."""
+    parsed = _parse_timestamp(sig.get("timestamp"))
+    ts_rank = parsed.timestamp() if parsed is not None else float("-inf")
+    return (
+        -ts_rank,
+        -_score_or_zero(sig.get("raw_score")),
+        str(sig.get("signal_ref", "")),
+        str(sig.get("source_file", "")),
+    )
+
+
+def _copy_summary(sig: dict) -> dict:
+    return {
+        "signal_ref": sig.get("signal_ref"),
+        "source_file": sig.get("source_file"),
+        "raw_score": sig.get("raw_score"),
+        "timestamp": sig.get("timestamp"),
+    }
+
+
 def deduplicate_signals(signals: list[dict], config: dict) -> tuple[list[dict], list[dict]]:
     """
     Deduplicate signals, merging similar ones.
@@ -870,40 +925,49 @@ def deduplicate_signals(signals: list[dict], config: dict) -> tuple[list[dict], 
     if not signals:
         return [], []
 
-    # Sort by raw score descending so we keep highest-scoring as primary
-    sorted_signals = sorted(signals, key=lambda s: s.get("raw_score", 0), reverse=True)
-
     # Pass 1: merge exact-evidence re-ingestions (same skill + evidence_id).
-    # The primary keeps the NEWEST observation timestamp across copies so the merged
-    # score is independent of ingestion order (Issue #510), and a copy that declared
-    # no score_scale still toggles the assumed-scale flag on the primary.
-    base_by_identity: dict[tuple[str, Any], dict] = {}
-    exact_copies: dict[tuple[str, Any], list[str]] = {}
-    for sig in sorted_signals:
+    # Newest observation wins: the copy with the latest parsed (timezone-aware)
+    # timestamp is the primary. Equal, missing, or unparsable timestamps fall back to
+    # the highest raw_score, then a stable key, so ingestion order cannot change the
+    # result (Issue #510). A copy that declared no score_scale still toggles the
+    # assumed-scale flag on the primary.
+    groups: dict[tuple[str, Any], list[dict]] = {}
+    for sig in signals:
         identity = (sig.get("skill", "unknown"), sig.get("evidence_id"))
-        base = base_by_identity.get(identity)
-        if base is not None:
-            primary = base
-            primary["_duplicate_copies"] = primary.get("_duplicate_copies", 0) + 1
-            exact_copies.setdefault(identity, []).append(
-                f"{sig['skill']}:{sig['signal_ref']}@{sig.get('source_file')}"
-            )
-            if sig.get("score_scale_assumed"):
-                primary["score_scale_assumed"] = True
-            ts = sig.get("timestamp")
-            primary_ts = primary.get("timestamp")
-            if (isinstance(ts, str) and primary_ts is None) or (
-                isinstance(ts, str) and isinstance(primary_ts, str) and ts > primary_ts
-            ):
-                primary["timestamp"] = ts
-        else:
-            base_by_identity[identity] = sig
+        groups.setdefault(identity, []).append(sig)
 
-    exact_signals = [
-        sig
-        for sig in sorted_signals
-        if base_by_identity.get((sig.get("skill", "unknown"), sig.get("evidence_id"))) is sig
-    ]
+    exact_signals: list[dict] = []
+    exact_logs: dict[tuple[str, Any], dict] = {}
+    for identity, group in groups.items():
+        ordered = sorted(group, key=_exact_copy_sort_key)
+        primary = dict(ordered[0])
+        discarded = ordered[1:]
+        if discarded:
+            primary["_duplicate_copies"] = len(discarded)
+            if any(c.get("score_scale_assumed") for c in discarded):
+                primary["score_scale_assumed"] = True
+            exact_logs[identity] = {
+                "merged_into": f"{primary['skill']}:{primary['signal_ref']}",
+                "duplicates_removed": [
+                    f"{c['skill']}:{c['signal_ref']}@{c.get('source_file')}" for c in discarded
+                ],
+                "similarity_score": 1.0,
+                "reason": "same evidence re-ingested",
+                "selection_rule": EXACT_MERGE_RULE,
+                "retained_copy": _copy_summary(primary),
+                "discarded_copies": [_copy_summary(c) for c in discarded],
+            }
+        exact_signals.append(primary)
+
+    # Deterministic order for the near-duplicate pass (independent of ingestion order).
+    exact_signals.sort(
+        key=lambda s: (
+            -_score_or_zero(s.get("raw_score")),
+            str(s.get("skill", "")),
+            str(s.get("signal_ref", "")),
+            str(s.get("evidence_id", "")),
+        )
+    )
 
     merged = []
     dedup_log = []
@@ -912,17 +976,9 @@ def deduplicate_signals(signals: list[dict], config: dict) -> tuple[list[dict], 
     # Exact-copy merges are logged BEFORE pass 2 so they surface regardless of the
     # primary's own fate in the near-duplicate merge (Issue #510 review finding).
     for sig in exact_signals:
-        copies = sig.get("_duplicate_copies", 0)
-        if copies:
-            identity = (sig.get("skill", "unknown"), sig.get("evidence_id"))
-            dedup_log.append(
-                {
-                    "merged_into": f"{sig['skill']}:{sig['signal_ref']}",
-                    "duplicates_removed": exact_copies.get(identity, []),
-                    "similarity_score": 1.0,
-                    "reason": "same evidence re-ingested",
-                }
-            )
+        identity = (sig.get("skill", "unknown"), sig.get("evidence_id"))
+        if identity in exact_logs:
+            dedup_log.append(exact_logs[identity])
 
     # Pass 2: near-duplicate similarity merge (existing behaviour).
     for i, sig in enumerate(exact_signals):
@@ -1284,7 +1340,10 @@ def aggregate_signals(
                 {
                     "skill": sig.get("skill"),
                     "signal_ref": sig.get("signal_ref"),
-                    "value": sig.get("raw_score"),
+                    "value": sig.get("input_value", sig.get("raw_score")),
+                    "normalized_value": round(sig["raw_score"], 6)
+                    if _is_finite_score(sig.get("raw_score"))
+                    else None,
                     "assumed_scale": "0-100",
                     "source_file": sig.get("source_file"),
                 }
@@ -1373,7 +1432,7 @@ def generate_markdown_report(result: dict) -> str:
         f"- Total Input Signals: {result['summary']['total_input_signals']}",
         f"- Unique After Dedup: {result['summary']['unique_signals_after_dedup']}",
         f"- Contradictions: {result['summary']['contradictions_found']}",
-        f"- High Conviction (>{result['config']['min_conviction']}): {result['summary']['signals_above_threshold']}",
+        f"- High Conviction (>={result['config']['min_conviction']}): {result['summary']['signals_above_threshold']}",
         "",
     ]
 
@@ -1394,9 +1453,9 @@ def generate_markdown_report(result: dict) -> str:
             )
             lines.append("- **Contributing Skills:**")
             for contrib in sig["contributing_skills"]:
-                lines.append(
-                    f"  - {contrib['skill']}: {contrib['raw_score']:.2f} ({contrib['signal_ref']})"
-                )
+                contrib_score = contrib.get("raw_score")
+                score_text = f"{contrib_score:.2f}" if _is_finite_score(contrib_score) else "n/a"
+                lines.append(f"  - {contrib['skill']}: {score_text} ({contrib['signal_ref']})")
             cb = sig["confidence_breakdown"]
             lines.append(
                 f"- **Confidence:** Agreement {cb['multi_skill_agreement']:.2f} | Strength {cb['signal_strength']:.2f} | Recency {cb['recency']:.2f}"
