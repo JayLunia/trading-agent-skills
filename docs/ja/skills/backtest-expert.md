@@ -127,7 +127,7 @@ python3 skills/backtest-expert/scripts/evaluate_backtest.py \
 | 40-69 | **REFINE** | 改善して再評価 |
 | 0-39 | **ABANDON** | 仮説を見直す |
 
-期待値がゼロ以下、DD 50%以上、利用者のDD上限超過、30トレード未満、スリッページ未検証、5年未満は点数より優先されます。採用可否は `decision` と `blocking_reasons` で確認してください。
+期待値がゼロ以下、DD 50%以上、利用者のDD上限超過、30トレード未満、スリッページ未検証、5年未満、勝率90%超かつ最大DD5%未満（`too_good`）は点数より優先されます。採用可否は `decision` と `blocking_reasons` で確認してください。
 
 ### レッドフラグ検出
 
