@@ -783,6 +783,30 @@ class TestDecisionGates:
         assert result["verdict"] != "Deploy"
         assert reason in result["blocking_reasons"]
 
+    def test_too_good_results_block_deploy(self, evaluator_module):
+        result = evaluator_module.evaluate(
+            total_trades=200,
+            win_rate=100,
+            avg_win_pct=3,
+            avg_loss_pct=1,
+            max_drawdown_pct=3,
+            years_tested=10,
+            num_parameters=3,
+            slippage_tested=True,
+        )
+        assert result["decision"] == "VALIDATION_REQUIRED"
+        assert result["verdict"] == "Refine"
+        assert "too_good" in result["blocking_reasons"]
+        assert "too_good" in [flag["id"] for flag in result["red_flags"]]
+
+    @pytest.mark.parametrize(("win_rate", "drawdown"), [(90, 3), (95, 5)])
+    def test_too_good_boundaries_do_not_trigger(self, evaluator_module, win_rate, drawdown):
+        result = evaluator_module.evaluate(
+            **self.inputs(win_rate=win_rate, max_drawdown_pct=drawdown)
+        )
+        assert "too_good" not in result["blocking_reasons"]
+        assert "too_good" not in [flag["id"] for flag in result["red_flags"]]
+
     def test_multiple_blockers_are_preserved(self, evaluator_module):
         result = evaluator_module.evaluate(
             **self.inputs(

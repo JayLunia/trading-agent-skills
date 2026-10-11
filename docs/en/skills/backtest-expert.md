@@ -99,7 +99,7 @@ The script scores across 5 dimensions and returns `decision` plus `blocking_reas
    - **Robustness (20):** Number of parameters and years tested. Fewer parameters (4 or fewer) and longer test periods (10+ years) score highest.
    - **Execution Realism (20):** Whether slippage and friction were modeled. Testing with slippage is worth full marks; skipping it caps the score.
 3. **Detect red flags** -- Checks too few trades (<30), negative expectancy, over-optimization (7+ parameters), excessive drawdown (>=50%), untested slippage, short test period (<5 years), and unusually good results.
-4. **Apply decision gates** -- `NOT_EVALUABLE` for too few trades (checked first, so it takes precedence over `REJECT`) or an overflowing profit-factor ratio; then `REJECT` for non-positive expectancy or drawdown >=50%; `RISK_LIMIT_EXCEEDED` for a tighter personal cap; `VALIDATION_REQUIRED` for missing slippage/friction testing or a short test period. Only then can the score yield `DEPLOY`, `REFINE`, or `ABANDON`. `DEPLOY` is an analysis result that still needs independent human risk review.
+4. **Apply decision gates** -- `NOT_EVALUABLE` for too few trades (checked first, so it takes precedence over `REJECT`) or an overflowing profit-factor ratio; then `REJECT` for non-positive expectancy or drawdown >=50%; `RISK_LIMIT_EXCEEDED` for a tighter personal cap; `VALIDATION_REQUIRED` for missing slippage/friction testing, a short test period, or results that look too good (win rate above 90% with drawdown below 5%). Only then can the score yield `DEPLOY`, `REFINE`, or `ABANDON`. `DEPLOY` is an analysis result that still needs independent human risk review.
 5. **Output reports** -- JSON and Markdown files are saved to the output directory.
 
 ---
@@ -256,7 +256,7 @@ After execution, the script produces a JSON and Markdown report containing:
 5. **Quality Score** -- Sum of all 5 dimensions (0-100), retained even when a safety gate blocks adoption.
 6. **Decision and blocking reasons** -- `DEPLOY`, `REFINE`, `ABANDON`, `REJECT`, `RISK_LIMIT_EXCEEDED`, `VALIDATION_REQUIRED`, or `NOT_EVALUABLE`. Use these fields for the next action. The older `verdict` field remains Deploy/Refine/Abandon for compatibility, never says Deploy when a gate blocks adoption, and is never better than the score-based verdict.
 
-Fewer than 30 trades or a profit-factor ratio overflow cause `NOT_EVALUABLE`, and this takes precedence over every other gate. Otherwise, non-positive expectancy (expectancy and profit factor are computed exactly from the inputs and rounded once, so float rounding can neither hide a break-even nor flip the sign) and a drawdown of at least 50% cause `REJECT`. A personal drawdown cap below 50% causes `RISK_LIMIT_EXCEEDED` only when exceeded. Missing slippage/friction validation or fewer than five years cause `VALIDATION_REQUIRED`. The score cannot override these gates. `profit_factor: null` with `profit_factor_status: NO_LOSSES` means positive gross profit and no gross losses; `UNDEFINED_ZERO_GROSS` means neither gross profit nor gross losses; `OVERFLOW` means a ratio overflow despite nonzero losses. Invalid or unrepresentable numeric inputs exit with status 1 and no report.
+Fewer than 30 trades or a profit-factor ratio overflow cause `NOT_EVALUABLE`, and this takes precedence over every other gate. Otherwise, non-positive expectancy (expectancy and profit factor are computed exactly from the inputs and rounded once, so float rounding can neither hide a break-even nor flip the sign) and a drawdown of at least 50% cause `REJECT`. A personal drawdown cap below 50% causes `RISK_LIMIT_EXCEEDED` only when exceeded. Missing slippage/friction validation, fewer than five years, or a win rate above 90% with drawdown below 5% (`too_good`, audit for look-ahead bias or data issues) cause `VALIDATION_REQUIRED`. The score cannot override these gates. `profit_factor: null` with `profit_factor_status: NO_LOSSES` means positive gross profit and no gross losses; `UNDEFINED_ZERO_GROSS` means neither gross profit nor gross losses; `OVERFLOW` means a ratio overflow despite nonzero losses. Invalid or unrepresentable numeric inputs exit with status 1 and no report.
 
 ---
 
@@ -333,7 +333,7 @@ Fewer than 30 trades or a profit-factor ratio overflow cause `NOT_EVALUABLE`, an
 
 | Dimension | Points | Key Thresholds |
 |-----------|--------|---------------|
-| Sample Size | 0-20 | 200+ trades = full marks; <30 = near zero |
+| Sample Size | 0-20 | 200+ trades = full marks; <30 = zero |
 | Expectancy | 0-20 | Profit factor 1.5+ = healthy; <1.0 = negative edge |
 | Risk Management | 0-20 | Drawdown <20% = best; >=50% = zero and a hard decision block |
 | Robustness | 0-20 | 4 or fewer params + 10+ years = best; 7+ params = over-optimization flag |

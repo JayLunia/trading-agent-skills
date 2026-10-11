@@ -426,6 +426,8 @@ def evaluate(
         blocking_reasons.append("no_slippage_test")
     if years_tested < 5:
         blocking_reasons.append("short_test_period")
+    if any(flag["id"] == "too_good" for flag in red_flags):
+        blocking_reasons.append("too_good")
 
     if "small_sample" in blocking_reasons or "profit_factor_overflow" in blocking_reasons:
         decision = "NOT_EVALUABLE"
@@ -436,7 +438,10 @@ def evaluate(
         decision = "REJECT"
     elif "risk_limit_exceeded" in blocking_reasons:
         decision = "RISK_LIMIT_EXCEEDED"
-    elif any(reason in blocking_reasons for reason in ("no_slippage_test", "short_test_period")):
+    elif any(
+        reason in blocking_reasons
+        for reason in ("no_slippage_test", "short_test_period", "too_good")
+    ):
         decision = "VALIDATION_REQUIRED"
     else:
         decision = get_verdict(total).upper()
