@@ -273,12 +273,12 @@ def _default_evidence_id(
     if provided:
         return str(provided)
     raw = f"{skill}|{signal_ref}|{_stable_title(title)}|{_ticker_token(tickers)}|{direction}"
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 def _default_event_fingerprint(title, tickers) -> str:
     raw = f"{_stable_title(title)}|{_ticker_token(tickers)}"
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 def _invalid_signal_entry(
@@ -1144,7 +1144,8 @@ def calculate_composite_score(signal: dict, config: dict) -> dict:
             contrib["raw_score"] = None
         if not contrib.get("evidence_id"):
             contrib["evidence_id"] = hashlib.sha1(
-                f"{contrib.get('skill', 'unknown')}|{contrib.get('signal_ref', 'unknown')}".encode()
+                f"{contrib.get('skill', 'unknown')}|{contrib.get('signal_ref', 'unknown')}".encode(),
+                usedforsecurity=False,
             ).hexdigest()
         if not contrib.get("event_fingerprint"):
             if contrib.get("title") is not None or contrib.get("tickers") is not None:
@@ -1153,7 +1154,8 @@ def calculate_composite_score(signal: dict, config: dict) -> dict:
                 )
             else:
                 contrib["event_fingerprint"] = hashlib.sha1(
-                    f"{contrib.get('skill', 'unknown')}|{contrib.get('signal_ref', 'unknown')}".encode()
+                    f"{contrib.get('skill', 'unknown')}|{contrib.get('signal_ref', 'unknown')}".encode(),
+                    usedforsecurity=False,
                 ).hexdigest()
 
     # Calculate weighted score from contributing skills
