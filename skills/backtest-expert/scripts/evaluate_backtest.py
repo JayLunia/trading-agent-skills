@@ -171,13 +171,96 @@ def score_execution_realism(slippage_tested: bool) -> int:
 # ---------------------------------------------------------------------------
 
 
+DEFAULT_MAX_DRAWDOWN_LIMIT = 50.0
+
+
 def get_verdict(total_score: int) -> str:
-    """Map total score to Deploy / Refine / Abandon."""
+    """Map total score to Deploy / Refine / Abandon (score band only)."""
     if total_score >= 70:
         return "Deploy"
     if total_score >= 40:
         return "Refine"
     return "Abandon"
+
+
+_VERDICT_BY_DECISION = {
+    "DEPLOY": "Deploy",
+    "FURTHER_VALIDATION": "Further Validation",
+    "REJECT": "Reject",
+    "UNEVALUABLE": "Unevaluable",
+}
+
+
+def determine_decision(
+    total_trades: int,
+    expectancy: float,
+    max_drawdown_pct: float,
+    slippage_tested: bool,
+    max_drawdown_limit: float = DEFAULT_MAX_DRAWDOWN_LIMIT,
+) -> tuple[str, list[dict]]:
+    """Compute the fail-closed adoption decision independent of the score.
+
+    Returns (decision, blocking_reasons). Blocking reasons cannot be offset
+    by quality score:
+
+      - negative expectancy          -> REJECT
+      - drawdown over the risk limit -> REJECT
+      - untested slippage/cost       -> FURTHER_VALIDATION
+      - zero trades (no data)        -> UNEVALUABLE
+    """
+    if total_trades == 0:
+        return (
+            "UNEVALUABLE",
+            [
+                {
+                    "id": "no_trades",
+                    "message": "No trades recorded — evaluation is not possible.",
+                }
+            ],
+        )
+
+    reasons: list[dict] = []
+
+    if expectancy < 0:
+        reasons.append(
+            {
+                "id": "negative_expectancy",
+                "message": (
+                    f"Negative expectancy ({expectancy:.3f}% per trade) — "
+                    "strategy loses money on average; adoption blocked."
+                ),
+            }
+        )
+
+    if max_drawdown_pct >= max_drawdown_limit:
+        reasons.append(
+            {
+                "id": "drawdown_over_limit",
+                "message": (
+                    f"Max drawdown {max_drawdown_pct:.1f}% exceeds "
+                    f"the {max_drawdown_limit:.1f}% risk limit — adoption blocked."
+                ),
+            }
+        )
+
+    if reasons:
+        return "REJECT", reasons
+
+    if not slippage_tested:
+        return (
+            "FURTHER_VALIDATION",
+            [
+                {
+                    "id": "no_slippage_test",
+                    "message": (
+                        "Slippage/friction not tested — further validation "
+                        "required before adoption."
+                    ),
+                }
+            ],
+        )
+
+    return "DEPLOY", []
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +388,7 @@ def evaluate(
     years_tested: int,
     num_parameters: int,
     slippage_tested: bool,
+    max_drawdown_limit: float = DEFAULT_MAX_DRAWDOWN_LIMIT,
 ) -> dict:
     """Run full 5-dimension evaluation and return structured result."""
     validate_inputs(
@@ -325,9 +409,25 @@ def evaluate(
     total = d1 + d2 + d3 + d4 + d5
     total = max(0, min(100, total))
 
+    expectancy = calc_expectancy(win_rate, avg_win_pct, avg_loss_pct)
+    decision, blocking_reasons = determine_decision(
+        total_trades=total_trades,
+        expectancy=expectancy,
+        max_drawdown_pct=max_drawdown_pct,
+        slippage_tested=slippage_tested,
+        max_drawdown_limit=max_drawdown_limit,
+    )
+    if blocking_reasons or decision != "DEPLOY":
+        verdict = _VERDICT_BY_DECISION[decision]
+    else:
+        verdict = get_verdict(total)
+
     return {
         "total_score": total,
-        "verdict": get_verdict(total),
+        "decision": decision,
+        "verdict": verdict,
+        "score_verdict": get_verdict(total),
+        "blocking_reasons": blocking_reasons,
         "dimensions": [
             {"name": "Sample Size", "score": d1, "max_score": 20},
             {"name": "Expectancy", "score": d2, "max_score": 20},
@@ -346,7 +446,7 @@ def evaluate(
             slippage_tested,
         ),
         "profit_factor": calc_profit_factor(win_rate, avg_win_pct, avg_loss_pct),
-        "expectancy": calc_expectancy(win_rate, avg_win_pct, avg_loss_pct),
+        "expectancy": expectancy,
         "inputs": {
             "total_trades": total_trades,
             "win_rate": win_rate,
@@ -356,6 +456,7 @@ def evaluate(
             "years_tested": years_tested,
             "num_parameters": num_parameters,
             "slippage_tested": slippage_tested,
+            "max_drawdown_limit": max_drawdown_limit,
         },
     }
 
@@ -373,6 +474,8 @@ def to_markdown(result: dict) -> str:
         f"**Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         "",
         f"## Verdict: {result['verdict']}",
+        "",
+        f"**Decision**: {result['decision']} (score band alone: {result['score_verdict']})",
         "",
         f"**Total Score: {result['total_score']} / 100**",
         "",
@@ -395,6 +498,13 @@ def to_markdown(result: dict) -> str:
             f"- **Expectancy**: {result['expectancy']:.3f}% per trade",
         ]
     )
+
+    if result["blocking_reasons"]:
+        lines.extend(["", "## Blocking Reasons", ""])
+        for reason in result["blocking_reasons"]:
+            lines.append(f"- 🚫 **{reason['id']}**: {reason['message']}")
+    else:
+        lines.extend(["", "## Blocking Reasons", "", "None — no blocking conditions met."])
 
     if result["red_flags"]:
         lines.extend(["", "## Red Flags", ""])
@@ -473,6 +583,15 @@ def parse_args() -> argparse.Namespace:
         "--slippage-tested", action="store_true", help="Whether slippage/friction was modeled"
     )
     parser.add_argument(
+        "--max-drawdown-limit-pct",
+        type=float,
+        default=DEFAULT_MAX_DRAWDOWN_LIMIT,
+        help=(
+            "User risk limit on maximum drawdown in percent; a drawdown at or "
+            "above this blocks adoption (default: 50)"
+        ),
+    )
+    parser.add_argument(
         "--output-dir", default="reports/", help="Output directory (default: reports/)"
     )
     return parser.parse_args()
@@ -490,12 +609,19 @@ def main() -> int:
         years_tested=args.years_tested,
         num_parameters=args.num_parameters,
         slippage_tested=args.slippage_tested,
+        max_drawdown_limit=args.max_drawdown_limit_pct,
     )
 
     output_dir = Path(args.output_dir)
     json_path, md_path = write_outputs(result, output_dir)
 
-    print(f"Score: {result['total_score']}/100 — Verdict: {result['verdict']}")
+    print(
+        f"Score: {result['total_score']}/100 — Decision: {result['decision']} (Verdict: {result['verdict']})"
+    )
+    if result["blocking_reasons"]:
+        print(f"Blocking reasons: {len(result['blocking_reasons'])}")
+        for reason in result["blocking_reasons"]:
+            print(f"  🔒 {reason['message']}")
     if result["red_flags"]:
         print(f"Red flags: {len(result['red_flags'])}")
         for flag in result["red_flags"]:

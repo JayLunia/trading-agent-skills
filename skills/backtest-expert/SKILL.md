@@ -129,7 +129,13 @@ python3 skills/backtest-expert/scripts/evaluate_backtest.py \
   --output-dir reports/
 ```
 
-The script scores across 5 dimensions (Sample Size, Expectancy, Risk Management, Robustness, Execution Realism), detects red flags, and outputs a Deploy/Refine/Abandon verdict.
+The script scores across 5 dimensions (Sample Size, Expectancy, Risk Management, Robustness, Execution Realism), detects red flags, and outputs a fail-closed decision (DEPLOY / FURTHER_VALIDATION / REJECT / UNEVALUABLE). Blocking conditions cannot be offset by the numeric score:
+- Negative expectancy → REJECT
+- Max drawdown at or above the risk limit (`--max-drawdown-limit-pct`, default 50) → REJECT
+- Untested slippage/cost evidence → FURTHER_VALIDATION
+- No recorded trades → UNEVALUABLE
+
+Blocking reasons are returned as machine-readable `blocking_reasons` entries alongside `decision`, `verdict`, and `score_verdict` (the score band alone).
 
 ## Key Testing Principles
 
@@ -182,7 +188,7 @@ See `references/failed_tests.md` for detailed examples and diagnostic framework.
 
 ## Output
 
-- `reports/backtest_eval_<timestamp>.json` — structured evaluation with per-dimension scores, red flags, and verdict
+- `reports/backtest_eval_<timestamp>.json` — structured evaluation with per-dimension scores, red flags, blocking reasons, decision, and verdict
 - `reports/backtest_eval_<timestamp>.md` — human-readable report with dimension table, key metrics, and red flag details
 
 ## Resources

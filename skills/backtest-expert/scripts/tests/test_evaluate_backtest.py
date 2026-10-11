@@ -591,3 +591,175 @@ class TestFileOutput:
         md_text = md_path.read_text(encoding="utf-8")
         assert "# Backtest Evaluation Report" in md_text
         assert result["verdict"] in md_text
+
+
+# ---------------------------------------------------------------------------
+# 12. Fail-closed decision gates (#508)
+# ---------------------------------------------------------------------------
+
+
+class TestDecisionGates:
+    """Issue #508 — a blocking condition must never become Deploy."""
+
+    def test_negative_expectancy_repro_never_deploy(self, evaluator_module):
+        """The exact #508 reproduction: expectancy -0.2%, score 72 must not Deploy."""
+        result = evaluator_module.evaluate(
+            total_trades=200,
+            win_rate=40,
+            avg_win_pct=1.0,
+            avg_loss_pct=1.0,
+            max_drawdown_pct=10,
+            years_tested=10,
+            num_parameters=4,
+            slippage_tested=True,
+        )
+        assert result["total_score"] == 72
+        assert result["expectancy"] == pytest.approx(-0.2)
+        assert result["decision"] == "REJECT"
+        assert result["verdict"] == "Reject"
+        assert result["score_verdict"] == "Deploy"
+        reason_ids = [r["id"] for r in result["blocking_reasons"]]
+        assert "negative_expectancy" in reason_ids
+
+    def test_high_score_cannot_offset_negative_expectancy(self, evaluator_module):
+        """Improving every other dimension must not unblock negative expectancy."""
+        result = evaluator_module.evaluate(
+            total_trades=1000,
+            win_rate=40,
+            avg_win_pct=1.0,
+            avg_loss_pct=1.0,
+            max_drawdown_pct=1,
+            years_tested=30,
+            num_parameters=1,
+            slippage_tested=True,
+        )
+        assert result["total_score"] >= 70
+        assert result["decision"] == "REJECT"
+
+    def test_drawdown_over_default_limit_rejects(self, evaluator_module):
+        """60% drawdown with default 50% limit must not Deploy."""
+        result = evaluator_module.evaluate(
+            total_trades=200,
+            win_rate=65,
+            avg_win_pct=2.5,
+            avg_loss_pct=1.0,
+            max_drawdown_pct=60,
+            years_tested=10,
+            num_parameters=3,
+            slippage_tested=True,
+        )
+        reason_ids = [r["id"] for r in result["blocking_reasons"]]
+        assert result["decision"] == "REJECT"
+        assert "drawdown_over_limit" in reason_ids
+        assert result["verdict"] == "Reject"
+
+    def test_custom_drawdown_limit_blocks(self, evaluator_module):
+        """A user-provided limit tighter than default blocks lower drawdowns."""
+        result = evaluator_module.evaluate(
+            total_trades=200,
+            win_rate=65,
+            avg_win_pct=2.5,
+            avg_loss_pct=1.0,
+            max_drawdown_pct=25,
+            years_tested=10,
+            num_parameters=3,
+            slippage_tested=True,
+            max_drawdown_limit=20.0,
+        )
+        reason_ids = [r["id"] for r in result["blocking_reasons"]]
+        assert result["decision"] == "REJECT"
+        assert "drawdown_over_limit" in reason_ids
+
+    def test_untested_slippage_further_validation(self, evaluator_module):
+        """Missing slippage/cost evidence requires further validation, not Deploy."""
+        result = evaluator_module.evaluate(
+            total_trades=200,
+            win_rate=65,
+            avg_win_pct=2.5,
+            avg_loss_pct=1.0,
+            max_drawdown_pct=15,
+            years_tested=10,
+            num_parameters=3,
+            slippage_tested=False,
+        )
+        assert result["decision"] == "FURTHER_VALIDATION"
+        assert result["verdict"] == "Further Validation"
+        reason_ids = [r["id"] for r in result["blocking_reasons"]]
+        assert "no_slippage_test" in reason_ids
+
+    def test_zero_trades_unevaluable(self, evaluator_module):
+        """No trades recorded -> UNEVALUABLE."""
+        result = evaluator_module.evaluate(
+            total_trades=0,
+            win_rate=50,
+            avg_win_pct=2.0,
+            avg_loss_pct=1.0,
+            max_drawdown_pct=10,
+            years_tested=10,
+            num_parameters=3,
+            slippage_tested=True,
+        )
+        assert result["decision"] == "UNEVALUABLE"
+        assert result["verdict"] == "Unevaluable"
+
+    def test_favorable_controls_still_deploy(self, evaluator_module):
+        """A clean backtest remains DEPLOY with no blocking reasons."""
+        result = evaluator_module.evaluate(
+            total_trades=200,
+            win_rate=65,
+            avg_win_pct=2.5,
+            avg_loss_pct=1.0,
+            max_drawdown_pct=15,
+            years_tested=10,
+            num_parameters=3,
+            slippage_tested=True,
+        )
+        assert result["decision"] == "DEPLOY"
+        assert result["verdict"] == "Deploy"
+        assert result["blocking_reasons"] == []
+
+    def test_reject_takes_precedence_over_slippage(self, evaluator_module):
+        """Negative expectancy + untested slippage -> REJECT (worst case wins)."""
+        result = evaluator_module.evaluate(
+            total_trades=200,
+            win_rate=40,
+            avg_win_pct=1.0,
+            avg_loss_pct=1.0,
+            max_drawdown_pct=10,
+            years_tested=10,
+            num_parameters=4,
+            slippage_tested=False,
+        )
+        assert result["decision"] == "REJECT"
+
+    def test_output_keys_present(self, evaluator_module):
+        """decision, blocking_reasons, score_verdict must be in the result."""
+        result = evaluator_module.evaluate(
+            total_trades=150,
+            win_rate=62,
+            avg_win_pct=1.8,
+            avg_loss_pct=1.2,
+            max_drawdown_pct=15,
+            years_tested=8,
+            num_parameters=3,
+            slippage_tested=True,
+        )
+        assert {"decision", "blocking_reasons", "score_verdict"}.issubset(result.keys())
+
+    def test_blocked_verdict_in_markdown(self, evaluator_module, tmp_path: Path):
+        """Markdown report must show Decision and Blocking Reasons."""
+        result = evaluator_module.evaluate(
+            total_trades=200,
+            win_rate=40,
+            avg_win_pct=1.0,
+            avg_loss_pct=1.0,
+            max_drawdown_pct=10,
+            years_tested=10,
+            num_parameters=4,
+            slippage_tested=True,
+        )
+        _, md_path = evaluator_module.write_outputs(result, tmp_path)
+        md_text = md_path.read_text(encoding="utf-8")
+        assert "## Blocking Reasons" in md_text
+        assert "negative_expectancy" in md_text
+        assert "Decision**" in md_text
