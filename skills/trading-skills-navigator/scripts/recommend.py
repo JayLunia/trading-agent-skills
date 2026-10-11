@@ -1092,12 +1092,16 @@ _CSV_INPUT_PATTERNS = (
     r"\b(?:import|upload|load|read|ingest|parse|using|use|based on)\b[^.;]{0,30}\bcsv\b",
     r"\b(?:holdings|positions|portfolio)\b[^.;]{0,20}\bin\s+(?:an?\s+)?csv\b",
     r"[\w/\\-]+\.csv\b",
+    r"\bcsv\b[^.;]{0,20}\bfrom\s+(?:my|the|an?|your)\s+(?:[\w-]+\s+)?(?:broker|brokerage|bank|account)\b",
     r"csv\s*(?:から|を取り込|を取込|を読み込|を読込|をインポート|をアップロード|の保有|のポジション)",
     r"(?:保有|ポジション|銘柄).{0,10}csv",
     r"csv.{0,10}(?:取り込|取込|読み込|インポート|アップロード)",
 )
 _CSV_OUTPUT_PATTERNS = (
-    r"\b(?:export|save|write|send|output|download|email|mail)\b[^.;]{0,25}\bcsv\b",
+    r"\b(?:export|save|write|send|output|email|mail)\b[^.;]{0,25}\bcsv\b",
+    r"\bdownload\s+(?:the\s+|my\s+)?(?:results?|report|summary)\b[^.;]{0,25}\bcsv\b",
+    r"\b(?:results?|reports?|summary|output|give|send|show|return|provide|deliver)\b[^.;]{0,25}\bas\s+(?:an?\s+)?csv\b",
+    r"\b(?:to|into)\s+(?:an?\s+)?csv\b",
     r"\bcsv\s+(?:export|output|report)\b",
     r"csv\s*(?:に|で)\s*(?:出力|保存|書き出|エクスポート)",
     r"csv\s*を\s*(?:出力|エクスポート|書き出)",
