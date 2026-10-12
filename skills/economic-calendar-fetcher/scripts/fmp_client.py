@@ -176,8 +176,9 @@ class FMPClient:
         stderr or ``_last_error`` goes through this first.
         """
         text = _redact_key(text)
-        # Tiny keys (test fixtures) would over-mask ordinary words.
-        if self.api_key and len(self.api_key) >= 6:
+        # Mask every accepted key regardless of length: leaking a key matters
+        # more than over-masking ordinary words that happen to contain it.
+        if self.api_key:
             text = text.replace(self.api_key, "***REDACTED***")
         return text
 

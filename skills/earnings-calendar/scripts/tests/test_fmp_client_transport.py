@@ -62,9 +62,9 @@ def test_redact_secret_masks_bare_value_and_url_pattern():
     assert "abc" not in text
 
 
-def test_redact_secret_skips_value_replace_for_tiny_keys():
-    client = FMPClient(api_key="abc")
-    assert client._redact_secret("abc stays") == "abc stays"
+def test_redact_secret_masks_short_keys_by_value():
+    client = FMPClient(api_key="abcde")
+    assert "abcde" not in client._redact_secret("proxy echoed abcde in failure")
 
 
 def test_request_exception_message_is_redacted_on_stderr_and_last_error(capsys):

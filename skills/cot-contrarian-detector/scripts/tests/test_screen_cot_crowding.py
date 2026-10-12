@@ -568,6 +568,23 @@ class TestBareKeyRedactionBeforePrint:
         assert self.SECRET not in captured.err
         assert self.SECRET not in captured.out
 
+    def test_short_key_in_request_exception_never_reaches_stderr(self, capsys):
+        # Short keys are accepted without validation, so they must be masked too.
+        short_key = "abcde"  # pragma: allowlist secret
+        client = CotClient(api_key=short_key, sleep_seconds=0.0)
+        client.session = _RaisingSession(
+            requests.ConnectionError(f"proxy echoed {short_key} in failure")
+        )
+
+        rows, error = client.get_report("ES", "2026-01-01", "2026-01-07")
+
+        captured = capsys.readouterr()
+        assert rows == []
+        assert error is not None
+        assert short_key not in error
+        assert short_key not in captured.err
+        assert short_key not in captured.out
+
     def test_bare_key_in_http_error_body_never_reaches_stderr(self, capsys):
         response = _FakeResponse({}, status_code=500)
         response.text = f"upstream said bad credential {self.SECRET}"
