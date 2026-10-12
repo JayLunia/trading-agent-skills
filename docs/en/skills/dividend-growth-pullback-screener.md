@@ -161,7 +161,10 @@ For each qualified stock, the report includes:
 **Dividend Growth Profile:**
 - Current yield and annual dividend
 - 3-year dividend CAGR and consistency
-- Payout ratio and sustainability assessment
+- Payout ratio and sustainability assessment, including FCF status, coverage, basis, and a per-stock explanation.
+- Non-REIT sustainability requires earnings payout <80% and reported free cash flow strictly above dividends paid. Negative, zero, insufficient, or missing/invalid FCF cannot confirm sustainability; metrics fallback is display-only.
+- Only explicit REIT flags or REIT industries use simplified FFO payout <80%. Real Estate sector alone does not identify a REIT. Simplified FFO requires net income and depreciation/amortization and excludes property-sale adjustments. FCF status is informational for identified REITs.
+- Decisions use unrounded values. Coverage shortfalls do not establish a certain future dividend cut.
 
 **Technical Timing:**
 - Current RSI value (≤40 = oversold)
