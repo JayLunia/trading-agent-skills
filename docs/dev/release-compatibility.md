@@ -4,6 +4,21 @@ The repository uses stable SemVer tags `vMAJOR.MINOR.PATCH` for the **whole repo
 
 Increase MAJOR for incompatible skill inputs/outputs, metadata, or workflow contracts; MINOR for backward-compatible skills or workflows; PATCH for backward-compatible fixes and documentation. While major is zero, explain any incompatible change explicitly in the migration guide. Preserve a dated version section in [CHANGELOG.md](https://github.com/tradermonty/claude-trading-skills/blob/main/CHANGELOG.md) with **Skills**, **Workflows**, and **Breaking metadata** entries, even when a category has no changes.
 
+The CHANGELOG must be UTF-8 and use exactly `## [X.Y.Z] - YYYY-MM-DD` (no `v` in the heading), with a valid ISO date. Each release must contain one nonempty subsection headed exactly `### Skills`, `### Workflows`, and `### Breaking metadata`. Fourth-level headings and bold labels do not substitute for these headings. For example:
+
+```markdown
+## [1.2.3] - 2026-10-12
+
+### Skills
+- Fixed input validation.
+
+### Workflows
+- No changes.
+
+### Breaking metadata
+- No changes.
+```
+
 ## Package and manifest compatibility
 
 | Release | `.skill` assets | `workflows/` and `skillsets/` | Support rule |

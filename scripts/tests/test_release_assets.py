@@ -12,7 +12,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
 from package_skills import package_skill  # noqa: E402
-from release_assets import ReleaseError, prepare, verify  # noqa: E402
+from release_assets import ReleaseError, main, prepare, verify  # noqa: E402
 
 
 @pytest.fixture
@@ -67,7 +67,9 @@ def test_prepare_requires_matching_release_metadata(source: Path) -> None:
     compat.write_text("| v1.2.3 | v1.2.3 | v1.2.2 | Cross-version |\n")
     with pytest.raises(ReleaseError, match="same-tag"):
         prepare(source, "v1.2.3", source / "dist")
-    compat.write_text("| v1.2.3 | v1.2.3 | v1.2.3 | Same tag |\n")
+    compat.write_text(
+        "| Release | Assets | Workflows | Rule |\n| --- | --- | --- | --- |\n| v1.2.3 | v1.2.3 | v1.2.3 | Same tag |\n"
+    )
     changelog = source / "CHANGELOG.md"
     changelog.write_text(
         changelog.read_text().replace("### Breaking metadata\n- None.", "### Breaking metadata\n")
@@ -106,3 +108,74 @@ def test_verify_rejects_missing_asset_and_bad_manifest(source: Path) -> None:
     (staged / "SHA256SUMS").write_text("0" * 64 + "  alpha.skill\n")
     with pytest.raises(ReleaseError, match="exactly once"):
         verify(staged, downloaded)
+
+
+HEADER = "| Release | Assets | Workflows | Rule |\n| --- | --- | --- | --- |\n"
+ROW = "| v1.2.3 | v1.2.3 | v1.2.3 | Same tag |\n"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        ROW,
+        "```\n" + HEADER + ROW + "```\n",
+        "~~~markdown\n" + HEADER + ROW + "~~~\n",
+        "```\n" + HEADER + ROW,
+        HEADER + "\n" + ROW,
+        HEADER + ROW + ROW,
+        HEADER.replace("---", "--") + ROW,
+        HEADER + ROW.replace("v1.2.3 | Same", "v1.2.2 | Same"),
+    ],
+)
+def test_compatibility_rejects_fake_or_invalid_table(source: Path, content: str) -> None:
+    (source / "docs/dev/release-compatibility.md").write_text(content)
+    with pytest.raises(ReleaseError, match="same-tag"):
+        prepare(source, "v1.2.3", source / "dist")
+
+
+@pytest.mark.parametrize("fence", ["```", "~~~"])
+def test_compatibility_ignores_fenced_fake_rows(source: Path, fence: str) -> None:
+    (source / "docs/dev/release-compatibility.md").write_text(
+        fence + "\n" + HEADER + ROW + fence + "\n" + HEADER + ROW
+    )
+    prepare(source, "v1.2.3", source / "dist")
+
+
+@pytest.mark.parametrize(
+    "old,new,expected",
+    [
+        ("## [1.2.3] -", "## [v1.2.3] -", "## [1.2.3] - YYYY-MM-DD"),
+        ("## [1.2.3] -", "## [1.2.3]", "## [1.2.3] - YYYY-MM-DD"),
+        ("### Skills", "#### Skills", "### Skills"),
+    ],
+)
+def test_changelog_near_miss_explains_format(
+    source: Path, old: str, new: str, expected: str
+) -> None:
+    changelog = source / "CHANGELOG.md"
+    changelog.write_text(changelog.read_text().replace(old, new))
+    with pytest.raises(ReleaseError) as error:
+        prepare(source, "v1.2.3", source / "dist")
+    assert expected in str(error.value)
+
+
+def test_non_utf8_changelog_blocks_cli_without_traceback(source: Path, capsys) -> None:
+    (source / "CHANGELOG.md").write_bytes(b"\xff")
+    assert (
+        main(
+            [
+                "prepare",
+                "--root",
+                str(source),
+                "--tag",
+                "v1.2.3",
+                "--output-dir",
+                str(source / "dist"),
+            ]
+        )
+        == 1
+    )
+    output = capsys.readouterr()
+    assert "CHANGELOG.md must be UTF-8" in output.err
+    assert "Traceback" not in output.err
+    assert not (source / "dist").exists()

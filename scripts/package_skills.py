@@ -144,14 +144,19 @@ def _archive_logical_contents(
                 name in contents
                 or info.is_dir()
                 or "\\" in name
+                or any(ord(char) < 32 or ord(char) == 127 for char in name)
                 or len(parts) < 2
                 or parts[0] != expected_skill
                 or any(part in {"", ".", ".."} for part in parts)
                 or stat.S_IFMT(info.external_attr >> 16) not in (0, stat.S_IFREG)
             ):
-                raise ValueError(f"Unsafe or duplicate archive member: {name}")
+                raise ValueError(f"Unsafe or duplicate archive member: {name!r}")
             exec_bit = bool((info.external_attr >> 16) & 0o111)
-            contents[name] = (archive.read(info), exec_bit)
+            try:
+                data = archive.read(info)
+            except (RuntimeError, NotImplementedError) as exc:
+                raise ValueError(f"Unreadable archive member: {name!r}") from exc
+            contents[name] = (data, exec_bit)
     return contents
 
 

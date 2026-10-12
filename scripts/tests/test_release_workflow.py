@@ -32,6 +32,23 @@ def test_release_workflow_is_tag_only_and_fail_closed() -> None:
         'gh release edit "$RELEASE_TAG" --draft=false',
     ):
         assert required in runs
-    assert runs.index("release_assets.py verify") < runs.index(
-        'gh release edit "$RELEASE_TAG" --draft=false'
+    commands = (
+        "git merge-base --is-ancestor",
+        "gh release create",
+        "gh release download",
+        "release_assets.py verify",
+        'gh release edit "$RELEASE_TAG" --draft=false',
     )
+    positions = [runs.index(command) for command in commands]
+    assert positions == sorted(positions)
+    assert 1 <= int(job["timeout-minutes"]) <= 15
+    assert job["env"]["RELEASE_TAG"] == "${{ github.ref_name }}"
+    for step in steps:
+        if "run" in step:
+            assert step["shell"] == "bash"
+            assert step["run"].splitlines()[0] == "set -euo pipefail"
+            assert "${{" not in step["run"]
+    for line in runs.splitlines():
+        if "gh release " in line or "prepare --tag" in line:
+            assert '"$RELEASE_TAG"' in line
+    assert "--draft --verify-tag" in runs

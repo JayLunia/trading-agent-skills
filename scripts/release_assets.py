@@ -38,24 +38,37 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _read_metadata(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ReleaseError(f"{path.name} must be UTF-8 text") from exc
+
+
 def _notes(changelog: Path, version: str) -> str:
-    content = changelog.read_text(encoding="utf-8")
+    content = _read_metadata(changelog)
     lines = re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL).splitlines()
     marker = f"## [{version}] - "
     matches = [index for index, line in enumerate(lines) if line.startswith(marker)]
     if len(matches) != 1:
-        raise ReleaseError(f"CHANGELOG needs exactly one [{version}] release section")
+        raise ReleaseError(
+            f"CHANGELOG needs exactly one release heading: ## [{version}] - YYYY-MM-DD"
+        )
     start = matches[0]
     try:
         date.fromisoformat(lines[start][len(marker) :])
     except ValueError as exc:
-        raise ReleaseError("CHANGELOG release heading needs a valid ISO date") from exc
+        raise ReleaseError(
+            f"CHANGELOG release heading must be ## [{version}] - YYYY-MM-DD with a valid ISO date"
+        ) from exc
     end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## [")), len(lines))
     section = lines[start:end]
     for heading in REQUIRED_NOTES:
         indexes = [i for i, line in enumerate(section) if line == f"### {heading}"]
         if len(indexes) != 1:
-            raise ReleaseError(f"CHANGELOG release needs one nonempty '{heading}' section")
+            raise ReleaseError(
+                f"CHANGELOG release needs one nonempty '{heading}' section headed exactly ### {heading}"
+            )
         next_heading = next(
             (i for i in range(indexes[0] + 1, len(section)) if section[i].startswith("### ")),
             len(section),
@@ -67,13 +80,46 @@ def _notes(changelog: Path, version: str) -> str:
 
 def _check_compatibility(path: Path, tag: str) -> None:
     rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("|"):
-            cells = [cell.strip() for cell in line.strip("|").split("|")]
-            if cells and cells[0] == tag:
+    fence = None
+    awaiting_separator = False
+    in_table = False
+    for line in _read_metadata(path).splitlines():
+        stripped = line.strip()
+        fence_match = re.match(r"^(`{3,}|~{3,})(.*)$", stripped)
+        if fence is not None:
+            if (
+                fence_match
+                and fence_match[1][0] == fence[0]
+                and len(fence_match[1]) >= len(fence)
+                and not fence_match[2].strip()
+            ):
+                fence = None
+            continue
+        if fence_match:
+            fence = fence_match[1]
+            awaiting_separator = in_table = False
+            continue
+        if not stripped.startswith("|") or not stripped.endswith("|"):
+            awaiting_separator = in_table = False
+            continue
+        cells = [cell.strip() for cell in stripped[1:-1].split("|")]
+        if len(cells) == 4 and cells[0] == "Release":
+            awaiting_separator = True
+            in_table = False
+            continue
+        if awaiting_separator:
+            in_table = len(cells) == 4 and all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells)
+            awaiting_separator = False
+            continue
+        if in_table:
+            if len(cells) != 4:
+                in_table = False
+            elif cells[0] == tag:
                 rows.append(cells)
-    if len(rows) != 1 or len(rows[0]) < 4 or rows[0][1:3] != [tag, tag]:
-        raise ReleaseError(f"Compatibility table needs one same-tag {tag} row")
+    if len(rows) != 1 or rows[0][1:3] != [tag, tag]:
+        raise ReleaseError(
+            f"Compatibility table needs one same-tag {tag} row after a Release header and separator"
+        )
 
 
 def prepare(root: Path, tag: str, output_dir: Path) -> list[Path]:
