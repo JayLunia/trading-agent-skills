@@ -197,3 +197,22 @@ def test_unreadable_zip_member_reports_drift(tmp_path: Path, capsys, encrypted: 
     diagnostic = capsys.readouterr().out
     assert "DRIFT:" in diagnostic
     assert "Unreadable archive member: 'demo-skill/SKILL.md'" in diagnostic
+
+
+def test_corrupt_compressed_member_reports_drift(tmp_path: Path, capsys) -> None:
+    import struct
+
+    skill = tmp_path / "demo-skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("demo " * 50)
+    output = tmp_path / "packages"
+    archive_path = package_skill(skill, output)
+    data = bytearray(archive_path.read_bytes())
+    local = data.index(b"PK\x03\x04")
+    name_len, extra_len = struct.unpack_from("<HH", data, local + 26)
+    # 0xFF starts a deflate block with reserved BTYPE=11, so decompression fails.
+    data[local + 30 + name_len + extra_len] = 0xFF
+    archive_path.write_bytes(data)
+    assert not check_skill(skill, output)
+    diagnostic = capsys.readouterr().out
+    assert "Unreadable archive member: 'demo-skill/SKILL.md'" in diagnostic

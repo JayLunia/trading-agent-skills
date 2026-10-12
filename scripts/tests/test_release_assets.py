@@ -125,6 +125,9 @@ ROW = "| v1.2.3 | v1.2.3 | v1.2.3 | Same tag |\n"
         HEADER + ROW + ROW,
         HEADER.replace("---", "--") + ROW,
         HEADER + ROW.replace("v1.2.3 | Same", "v1.2.2 | Same"),
+        "<!--\n" + HEADER + ROW + "-->\n",
+        HEADER + "<!-- " + ROW.strip() + " -->\n",
+        "".join("    " + line + "\n" for line in (HEADER + ROW).splitlines()),
     ],
 )
 def test_compatibility_rejects_fake_or_invalid_table(source: Path, content: str) -> None:
@@ -139,6 +142,21 @@ def test_compatibility_ignores_fenced_fake_rows(source: Path, fence: str) -> Non
         fence + "\n" + HEADER + ROW + fence + "\n" + HEADER + ROW
     )
     prepare(source, "v1.2.3", source / "dist")
+
+
+def test_compatibility_allows_escaped_pipe_in_earlier_row(source: Path) -> None:
+    (source / "docs/dev/release-compatibility.md").write_text(
+        HEADER + "| v1.2.2 | v1.2.2 | v1.2.2 | a \\| b |\n" + ROW
+    )
+    prepare(source, "v1.2.3", source / "dist")
+
+
+@pytest.mark.parametrize("bad_date", ["20261010", "2026-W41-1", "2026-10-10T00:00"])
+def test_changelog_date_must_be_yyyy_mm_dd(source: Path, bad_date: str) -> None:
+    changelog = source / "CHANGELOG.md"
+    changelog.write_text(changelog.read_text().replace("2026-10-10", bad_date))
+    with pytest.raises(ReleaseError, match="YYYY-MM-DD"):
+        prepare(source, "v1.2.3", source / "dist")
 
 
 @pytest.mark.parametrize(

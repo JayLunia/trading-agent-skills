@@ -25,7 +25,7 @@ The CHANGELOG must be UTF-8 and use exactly `## [X.Y.Z] - YYYY-MM-DD` (no `v` in
 | --- | --- | --- | --- |
 | Unreleased (main) | Unreleased (main) | Unreleased (main) | Development snapshot only; use one commit for all components. |
 
-Add a concrete `vX.Y.Z` row before creating each tag, with that exact tag in the first three columns. The release builder refuses a tag without its row. For a release, use all `.skill` assets and workflow/skillset manifests from the **same tag**. Cross-version mixing is unverified and unsupported unless a future row explicitly documents and tests it. The Python/OS support matrix is separate: [compatibility-matrix.md](compatibility-matrix.md).
+Add a concrete `vX.Y.Z` row before creating each tag, with that exact tag in the first three columns. The release builder refuses a tag without its row. It reads only this rendered four-column table: the `Release` header row, then a `---` separator row, then contiguous rows. Rows inside HTML comments, code fences, or indented code blocks do not count. Escape a literal pipe in a cell as `\|`. For a release, use all `.skill` assets and workflow/skillset manifests from the **same tag**. Cross-version mixing is unverified and unsupported unless a future row explicitly documents and tests it. The Python/OS support matrix is separate: [compatibility-matrix.md](compatibility-matrix.md).
 
 ## Release procedure
 

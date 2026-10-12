@@ -17,6 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TAG_RE = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 SKILL_RE = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
 HEX_RE = re.compile(r"[0-9a-f]{64}\Z")
+DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
+COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 REQUIRED_NOTES = ("Skills", "Workflows", "Breaking metadata")
 
 
@@ -47,7 +49,7 @@ def _read_metadata(path: Path) -> str:
 
 def _notes(changelog: Path, version: str) -> str:
     content = _read_metadata(changelog)
-    lines = re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL).splitlines()
+    lines = COMMENT_RE.sub("", content).splitlines()
     marker = f"## [{version}] - "
     matches = [index for index, line in enumerate(lines) if line.startswith(marker)]
     if len(matches) != 1:
@@ -55,8 +57,12 @@ def _notes(changelog: Path, version: str) -> str:
             f"CHANGELOG needs exactly one release heading: ## [{version}] - YYYY-MM-DD"
         )
     start = matches[0]
+    # Python 3.11+ fromisoformat also accepts 20261010 and 2026-W41-1.
+    heading_date = lines[start][len(marker) :]
     try:
-        date.fromisoformat(lines[start][len(marker) :])
+        if not DATE_RE.fullmatch(heading_date):
+            raise ValueError(heading_date)
+        date.fromisoformat(heading_date)
     except ValueError as exc:
         raise ReleaseError(
             f"CHANGELOG release heading must be ## [{version}] - YYYY-MM-DD with a valid ISO date"
@@ -83,7 +89,8 @@ def _check_compatibility(path: Path, tag: str) -> None:
     fence = None
     awaiting_separator = False
     in_table = False
-    for line in _read_metadata(path).splitlines():
+    # Rows hidden in HTML comments or indented code blocks are not rendered.
+    for line in COMMENT_RE.sub("", _read_metadata(path)).splitlines():
         stripped = line.strip()
         fence_match = re.match(r"^(`{3,}|~{3,})(.*)$", stripped)
         if fence is not None:
@@ -99,10 +106,11 @@ def _check_compatibility(path: Path, tag: str) -> None:
             fence = fence_match[1]
             awaiting_separator = in_table = False
             continue
-        if not stripped.startswith("|") or not stripped.endswith("|"):
+        indented = len(line) - len(line.lstrip(" ")) >= 4 or line.startswith("\t")
+        if indented or not stripped.startswith("|") or not stripped.endswith("|"):
             awaiting_separator = in_table = False
             continue
-        cells = [cell.strip() for cell in stripped[1:-1].split("|")]
+        cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", stripped[1:-1])]
         if len(cells) == 4 and cells[0] == "Release":
             awaiting_separator = True
             in_table = False

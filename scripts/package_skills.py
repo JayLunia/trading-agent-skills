@@ -9,8 +9,10 @@ security-scanner noise when users install .skill archives in Claude Web App.
 from __future__ import annotations
 
 import argparse
+import lzma
 import os
 import stat
+import zlib
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile, ZipInfo
 
@@ -154,7 +156,13 @@ def _archive_logical_contents(
             exec_bit = bool((info.external_attr >> 16) & 0o111)
             try:
                 data = archive.read(info)
-            except (RuntimeError, NotImplementedError) as exc:
+            except (
+                RuntimeError,
+                NotImplementedError,
+                EOFError,
+                zlib.error,
+                lzma.LZMAError,
+            ) as exc:
                 raise ValueError(f"Unreadable archive member: {name!r}") from exc
             contents[name] = (data, exec_bit)
     return contents
