@@ -267,3 +267,12 @@ def test_generated_output_redacts_apikey_in_stderr(gen):
         out = gen.render_fmp_client(cfg)
         assert "_redact_key(" in out, cfg.skill
         assert expected_pattern_literal in out, cfg.skill
+
+
+def test_redaction_has_one_shared_template_definition(gen):
+    templates = [gen.SRC_DIR / "core_template.py.tmpl", *(gen.SRC_DIR / "specials").glob("*.tmpl")]
+    assert all("def _redact_secret" not in path.read_text() for path in templates)
+    fragment = (gen.SRC_DIR / "redaction.py.tmpl").read_text()
+    assert fragment.count("def _redact_secret") == 1
+    for cfg in _skills(gen).values():
+        assert gen.render_fmp_client(cfg).count(fragment.rstrip()) == 1

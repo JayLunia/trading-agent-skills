@@ -170,22 +170,10 @@ class FMPClient:
 
     _ENDPOINT_FAILURE_THRESHOLD = 3  # disable endpoint after N consecutive failures
 
-    def _redact_secret(self, text) -> str:
-        """Mask the API key in ``text`` by VALUE, then by URL query pattern.
-
-        ``_redact_key`` only masks ``?apikey=...`` in URLs; a proxy or API
-        error body can echo the bare key, so every message that may reach
-        stderr or ``_last_error`` goes through this first.
-        """
-        text = _redact_key(text)
-        # Mask every accepted key regardless of length: leaking a key matters
-        # more than over-masking ordinary words that happen to contain it.
-        if self.api_key:
-            text = text.replace(self.api_key, "***REDACTED***")
-        return text
+@@REDACTION@@
 
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv("FMP_API_KEY")
+        self.api_key = (api_key or os.getenv("FMP_API_KEY") or "").strip()
         if not self.api_key:
             raise ValueError(
                 "FMP API key required. Set FMP_API_KEY environment variable "
