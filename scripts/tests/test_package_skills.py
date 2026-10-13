@@ -151,3 +151,68 @@ def test_check_skill_rejects_special_file_member(tmp_path: Path) -> None:
         info.external_attr = (stat.S_IFIFO | 0o644) << 16
         archive.writestr(info, b"demo\n")
     assert not check_skill(skill_dir, output_dir)
+
+
+@pytest.mark.parametrize(
+    "name", ["demo-skill/foo\nDRIFT: forged", "demo-skill/foo\rforged", "demo-skill/foo\x1bforged"]
+)
+def test_control_character_member_reports_single_escaped_drift(
+    tmp_path: Path, capsys, name: str
+) -> None:
+    skill = tmp_path / "demo-skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("demo")
+    output = tmp_path / "packages"
+    archive_path = package_skill(skill, output)
+    with ZipFile(archive_path, "a") as archive:
+        archive.writestr(name, b"bad")
+    assert not check_skill(skill, output)
+    diagnostic = capsys.readouterr().out
+    assert len(diagnostic.splitlines()) == 1
+    assert repr(name) in diagnostic
+    assert diagnostic.startswith("DRIFT:")
+
+
+@pytest.mark.parametrize("encrypted", [True, False])
+def test_unreadable_zip_member_reports_drift(tmp_path: Path, capsys, encrypted: bool) -> None:
+    import struct
+
+    skill = tmp_path / "demo-skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("demo")
+    output = tmp_path / "packages"
+    archive_path = package_skill(skill, output)
+    data = bytearray(archive_path.read_bytes())
+    local = data.index(b"PK\x03\x04")
+    central = data.index(b"PK\x01\x02")
+    if encrypted:
+        for offset in (local + 6, central + 8):
+            flags = struct.unpack_from("<H", data, offset)[0]
+            struct.pack_into("<H", data, offset, flags | 1)
+    else:
+        for offset in (local + 8, central + 10):
+            struct.pack_into("<H", data, offset, 99)
+    archive_path.write_bytes(data)
+    assert not check_skill(skill, output)
+    diagnostic = capsys.readouterr().out
+    assert "DRIFT:" in diagnostic
+    assert "Unreadable archive member: 'demo-skill/SKILL.md'" in diagnostic
+
+
+def test_corrupt_compressed_member_reports_drift(tmp_path: Path, capsys) -> None:
+    import struct
+
+    skill = tmp_path / "demo-skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("demo " * 50)
+    output = tmp_path / "packages"
+    archive_path = package_skill(skill, output)
+    data = bytearray(archive_path.read_bytes())
+    local = data.index(b"PK\x03\x04")
+    name_len, extra_len = struct.unpack_from("<HH", data, local + 26)
+    # 0xFF starts a deflate block with reserved BTYPE=11, so decompression fails.
+    data[local + 30 + name_len + extra_len] = 0xFF
+    archive_path.write_bytes(data)
+    assert not check_skill(skill, output)
+    diagnostic = capsys.readouterr().out
+    assert "Unreadable archive member: 'demo-skill/SKILL.md'" in diagnostic

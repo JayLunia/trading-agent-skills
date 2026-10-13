@@ -4,13 +4,28 @@ The repository uses stable SemVer tags `vMAJOR.MINOR.PATCH` for the **whole repo
 
 Increase MAJOR for incompatible skill inputs/outputs, metadata, or workflow contracts; MINOR for backward-compatible skills or workflows; PATCH for backward-compatible fixes and documentation. While major is zero, explain any incompatible change explicitly in the migration guide. Preserve a dated version section in [CHANGELOG.md](https://github.com/tradermonty/claude-trading-skills/blob/main/CHANGELOG.md) with **Skills**, **Workflows**, and **Breaking metadata** entries, even when a category has no changes.
 
+The CHANGELOG must be UTF-8 and use exactly `## [X.Y.Z] - YYYY-MM-DD` (no `v` in the heading), with a valid ISO date. Each release must contain one nonempty subsection headed exactly `### Skills`, `### Workflows`, and `### Breaking metadata`. Fourth-level headings and bold labels do not substitute for these headings. For example:
+
+```markdown
+## [1.2.3] - 2026-10-12
+
+### Skills
+- Fixed input validation.
+
+### Workflows
+- No changes.
+
+### Breaking metadata
+- No changes.
+```
+
 ## Package and manifest compatibility
 
 | Release | `.skill` assets | `workflows/` and `skillsets/` | Support rule |
 | --- | --- | --- | --- |
 | Unreleased (main) | Unreleased (main) | Unreleased (main) | Development snapshot only; use one commit for all components. |
 
-Add a concrete `vX.Y.Z` row before creating each tag, with that exact tag in the first three columns. The release builder refuses a tag without its row. For a release, use all `.skill` assets and workflow/skillset manifests from the **same tag**. Cross-version mixing is unverified and unsupported unless a future row explicitly documents and tests it. The Python/OS support matrix is separate: [compatibility-matrix.md](compatibility-matrix.md).
+Add a concrete `vX.Y.Z` row before creating each tag, with that exact tag in the first three columns. The release builder refuses a tag without its row. It reads only this rendered four-column table: the `Release` header row, then a `---` separator row, then contiguous rows. Rows inside HTML comments, code fences, or indented code blocks do not count. Escape a literal pipe in a cell as `\|`. For a release, use all `.skill` assets and workflow/skillset manifests from the **same tag**. Cross-version mixing is unverified and unsupported unless a future row explicitly documents and tests it. The Python/OS support matrix is separate: [compatibility-matrix.md](compatibility-matrix.md).
 
 ## Release procedure
 
