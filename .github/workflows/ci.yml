@@ -66,6 +66,9 @@ jobs:
           uv sync --locked --no-install-project --extra dev --extra ci
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
+      - name: Validate bundled skill resource references
+        run: python3 scripts/check_skill_references.py
+
       - name: Validate documented CLI examples
         run: python3 scripts/check_doc_cli_examples.py validate
 

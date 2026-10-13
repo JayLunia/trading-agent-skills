@@ -59,6 +59,13 @@ repos:
         language: system
         files: 'skills/.*/SKILL\.md$'
 
+      - id: skill-references
+        name: Validate SKILL.md bundled resource references
+        entry: python3 scripts/check_skill_references.py
+        language: system
+        files: '^(skills/.*|scripts/check_skill_references\.py|scripts/tests/test_check_skill_references\.py|\.pre-commit-config\.yaml)$'
+        pass_filenames: false
+
       - id: docs-completeness
         name: Check all skills have doc pages
         entry: python3 scripts/hooks/check_docs_completeness.py
