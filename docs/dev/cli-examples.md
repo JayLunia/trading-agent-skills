@@ -17,6 +17,9 @@ comment. In the three root command-reference files (`CLAUDE.md`, `README.md`,
 and `README.ja.md`), `validate` also checks repository-relative Python script
 paths in unmarked fenced bash examples. That path-only check does not run the
 examples or validate their options. A valid `skip` marker exempts its block.
+Because the path-only check resolves paths from the repository root, examples
+that use placeholders such as `skills/<skill-name>/...` or a preceding `cd`
+must carry a valid `<!-- exec: skip ... -->` marker.
 
 ## Targets
 
