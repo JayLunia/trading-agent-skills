@@ -28,12 +28,14 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.10"
+      - name: Install locked dependencies
+        run: uv sync --locked --no-install-project --extra dev
       - name: Report and notify on existing tracking issue
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: >-
-          uv run --locked --extra dev --no-install-project
+          uv run --locked --no-sync
           python scripts/check_coverage_waiver_expiry.py
           --output coverage-waiver-expiry.json --notify "$GH_REPO"
       - name: Upload expiry evidence

@@ -1,4 +1,6 @@
 import json
+import shlex
+import shutil
 import subprocess
 from datetime import date
 
@@ -175,3 +177,32 @@ def test_workflow_scope_and_permissions():
     assert "tradermonty/claude-trading-skills" in job["if"]
     assert workflow["concurrency"]["cancel-in-progress"] is False
     assert any("--notify" in step.get("run", "") for step in job["steps"])
+
+
+def _workflow_uv_commands():
+    workflow = yaml.safe_load(
+        (monitor.ROOT / ".github/workflows/coverage-waiver-expiry.yml").read_text()
+    )
+    runs = [step["run"] for step in workflow["jobs"]["notify"]["steps"] if "run" in step]
+    return [shlex.split(run) for run in runs if run.lstrip().startswith("uv ")]
+
+
+def test_workflow_syncs_then_runs_without_resync():
+    commands = _workflow_uv_commands()
+    assert [argv[1] for argv in commands] == ["sync", "run"]
+    sync, run = commands
+    assert {"--locked", "--no-install-project", "--extra", "dev"} <= set(sync)
+    assert {"--locked", "--no-sync"} <= set(run)
+    assert "--no-install-project" not in run
+    script = run[run.index("python") : run.index("python") + 2]
+    assert script == ["python", "scripts/check_coverage_waiver_expiry.py"]
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="uv CLI not installed")
+def test_workflow_uv_options_are_accepted_by_uv():
+    # uv validates every option before handling --help, so an option that belongs to
+    # another subcommand (e.g. `uv run --no-install-project`) fails here, offline.
+    for argv in _workflow_uv_commands():
+        options = argv[: argv.index("python")] if "python" in argv else argv
+        result = subprocess.run([*options, "--help"], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
