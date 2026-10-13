@@ -226,6 +226,24 @@ def _validate_script_lines(
         command = ""
 
 
+_UV_RUN_VALUE_OPTIONS = frozenset(
+    {
+        "--with",
+        "--project",
+        "--directory",
+        "--python",
+        "-p",
+        "--extra",
+        "--group",
+        "--env-file",
+        "--package",
+        "--from",
+        "--index",
+        "--with-requirements",
+    }
+)
+
+
 def _python_script_operand(tokens: list[str]) -> str | None:
     """Return a Python script operand from a shell command, not display text."""
     if not tokens:
@@ -247,14 +265,14 @@ def _python_script_operand(tokens: list[str]) -> str | None:
     while index < len(tokens) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[index]):
         index += 1
     if tokens[index : index + 2] == ["uv", "run"]:
-        index = next(
-            (
-                pos
-                for pos in range(index + 2, len(tokens))
-                if re.fullmatch(r"python(?:3(?:\.\d+)?)?", tokens[pos])
-            ),
-            len(tokens),
-        )
+        index += 2
+        while index < len(tokens) and tokens[index].startswith("-"):
+            if tokens[index] in _UV_RUN_VALUE_OPTIONS:
+                index += 2
+            else:
+                index += 1
+        if index < len(tokens) and tokens[index].endswith(".py"):
+            return tokens[index]
     if index >= len(tokens) or not re.fullmatch(r"python(?:3(?:\.\d+)?)?", tokens[index]):
         return None
     index += 1

@@ -451,6 +451,33 @@ def test_unmarked_gate_handles_python_options_and_shell_wrappers(tmp_path):
     ]
 
 
+def test_unmarked_gate_checks_script_directly_after_uv_run(tmp_path):
+    scripts = tmp_path / "skills" / "demo" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "ok.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "CLAUDE.md").write_text(
+        "```bash\n"
+        "uv run skills/nope/scripts/x.py --flag\n"
+        "uv run skills/demo/scripts/ok.py --project-root .\n"
+        "uv run --with pkg skills/demo/scripts/ok.py\n"
+        "uv run --project . --with=pkg skills/demo/scripts/ok.py\n"
+        "uv run --with pkg skills/nope/scripts/y.py\n"
+        "uv run --project . skills/nope/scripts/z.py\n"
+        "uv run python3 scripts/missing-py.py\n"
+        "uv run pytest skills/demo/scripts/tests\n"
+        "uv run ruff check scripts/\n"
+        "```\n",
+        encoding="utf-8",
+    )
+    findings = gate.run_validate(["CLAUDE.md"], [], root=tmp_path)
+    assert [(f.line_no, f.message) for f in findings] == [
+        (2, "script does not exist: skills/nope/scripts/x.py"),
+        (6, "script does not exist: skills/nope/scripts/y.py"),
+        (7, "script does not exist: skills/nope/scripts/z.py"),
+        (8, "script does not exist: scripts/missing-py.py"),
+    ]
+
+
 def test_unmarked_gate_resolves_in_root_parent_segments(tmp_path):
     scripts = tmp_path / "skills" / "demo" / "scripts"
     scripts.mkdir(parents=True)
