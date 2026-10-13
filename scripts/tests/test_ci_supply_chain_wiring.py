@@ -134,3 +134,13 @@ def test_dependabot_tracks_all_three_manifest_families_weekly():
         ("bundler", "/docs"),
     }
     assert all(item["schedule"]["interval"] == "weekly" for item in config["updates"])
+
+
+def test_dependabot_holds_market_calendar_at_python39_floor():
+    # pandas-market-calendars > 5.2.2 breaks the standalone Python 3.9 floor
+    # (config/market-calendar-dependency.yaml); bumps need a policy change, not a PR.
+    config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+    uv = next(item for item in config["updates"] if item["package-ecosystem"] == "uv")
+    assert {"dependency-name": "pandas-market-calendars"} in uv.get("ignore", [])
+    authority = yaml.safe_load((ROOT / "config/market-calendar-dependency.yaml").read_text())
+    assert authority["requirement"] == "pandas-market-calendars==5.2.2"
