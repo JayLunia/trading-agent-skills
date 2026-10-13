@@ -526,5 +526,26 @@ def test_unmarked_gate_reports_each_command_start_line(tmp_path):
     ]
 
 
+def test_unmarked_gate_validates_trailing_continuation_command(tmp_path):
+    (tmp_path / "CLAUDE.md").write_text(
+        "```bash\npython3 skills/x/scripts/missing.py \\\n```\n",
+        encoding="utf-8",
+    )
+    findings = gate.run_validate(["CLAUDE.md"], [], root=tmp_path)
+    assert [(f.line_no, f.message) for f in findings] == [
+        (2, "script does not exist: skills/x/scripts/missing.py"),
+    ]
+
+
+def test_run_validate_absolute_target_outside_root_does_not_crash(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("```bash\npython3 skills/x/scripts/missing.py\n```\n", encoding="utf-8")
+    findings = gate.run_validate([str(outside)], [], root=root)
+    # Outside the repo root: not a root doc, so the unmarked path check is skipped.
+    assert findings == []
+
+
 def test_current_default_documented_examples_validate():
     assert gate.run_validate(gate.DEFAULT_TARGETS, gate.DEFAULT_EN_JA_PAIRS) == []

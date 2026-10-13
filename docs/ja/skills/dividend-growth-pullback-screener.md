@@ -66,15 +66,15 @@ permalink: /ja/skills/dividend-growth-pullback-screener/
 
 ```bash
 # RSIフィルター付き2段階スクリーニング（推奨）
-python3 dividend-growth-pullback-screener/scripts/screen_dividend_growth.py --use-finviz
+python3 dividend-growth-pullback-screener/scripts/screen_dividend_growth_rsi.py --use-finviz
 
 # FMPのみのスクリーニング（APIリミットにより最大約40銘柄）
-python3 dividend-growth-pullback-screener/scripts/screen_dividend_growth.py --max-candidates 40
+python3 dividend-growth-pullback-screener/scripts/screen_dividend_growth_rsi.py --max-candidates 40
 
 # カスタムRSI閾値と配当成長要件
-python3 dividend-growth-pullback-screener/scripts/screen_dividend_growth.py \
+python3 dividend-growth-pullback-screener/scripts/screen_dividend_growth_rsi.py \
   --use-finviz \
-  --rsi-threshold 35 \
+  --rsi-max 35 \
   --min-div-growth 15
 ```
 

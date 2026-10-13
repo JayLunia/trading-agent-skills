@@ -393,13 +393,12 @@ python3 skills/economic-calendar-fetcher/scripts/get_economic_calendar.py \
 
 **Earnings Calendar:** ⚠️ Requires FMP API key
 ```bash
-# Default: next 7 days, market cap > $2B
-python3 skills/earnings-calendar/scripts/fetch_earnings_fmp.py --api-key YOUR_KEY
+# Date range (positional START_DATE END_DATE); API key from FMP_API_KEY
+python3 skills/earnings-calendar/scripts/fetch_earnings_fmp.py 2025-11-03 2025-11-09
 
-# Custom date range
+# Pass the API key as the optional third positional argument
 python3 skills/earnings-calendar/scripts/fetch_earnings_fmp.py \
-  --from 2025-11-01 --to 2025-11-07 \
-  --api-key YOUR_KEY
+  2025-11-03 2025-11-09 YOUR_KEY
 ```
 
 **Value Dividend Screener:** ⚠️ Requires FMP API key; FINVIZ Elite optional but recommended
@@ -425,10 +424,10 @@ python3 skills/dividend-growth-pullback-screener/scripts/screen_dividend_growth_
 # FMP-only screening (limited to ~40 stocks due to API limits)
 python3 skills/dividend-growth-pullback-screener/scripts/screen_dividend_growth_rsi.py --max-candidates 40
 
-# Custom RSI threshold and dividend growth requirements
+# Custom maximum RSI and dividend growth requirements
 python3 skills/dividend-growth-pullback-screener/scripts/screen_dividend_growth_rsi.py \
   --use-finviz \
-  --rsi-threshold 35 \
+  --rsi-max 35 \
   --min-div-growth 15
 ```
 
@@ -438,7 +437,7 @@ python3 skills/dividend-growth-pullback-screener/scripts/screen_dividend_growth_
 python3 skills/pair-trade-screener/scripts/find_pairs.py --sector Technology
 
 # Analyze specific pair
-python3 skills/pair-trade-screener/scripts/analyze_spread.py AAPL MSFT
+python3 skills/pair-trade-screener/scripts/analyze_spread.py --stock-a AAPL --stock-b MSFT
 
 # Custom cointegration parameters
 python3 skills/pair-trade-screener/scripts/find_pairs.py \
@@ -661,9 +660,6 @@ An automated pipeline reviews and improves skill quality on a daily cadence.
 ```bash
 # Dry-run: score one skill without improvements or PRs
 python3 scripts/run_skill_improvement_loop.py --dry-run
-
-# Dry-run all skills
-python3 scripts/run_skill_improvement_loop.py --dry-run --all
 
 # Full run
 python3 scripts/run_skill_improvement_loop.py
