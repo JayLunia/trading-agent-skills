@@ -12,10 +12,11 @@ the regressions described in issue #336:
 - the English and Japanese versions of a paired document drift apart in the
   commands they document.
 
-The gate is deliberately a progressive, opt-in mechanism: **only commands
-marked with an HTML `<!-- exec: ... -->` comment are validated.** This keeps the
-repo's snapshots of command-reference docs buildable without rewriting fully
-stale sections in one pass.
+The full script-and-option gate is opt-in through an HTML `<!-- exec: ... -->`
+comment. In the three root command-reference files (`CLAUDE.md`, `README.md`,
+and `README.ja.md`), `validate` also checks repository-relative Python script
+paths in unmarked fenced bash examples. That path-only check does not run the
+examples or validate their options. A valid `skip` marker exempts its block.
 
 ## Targets
 
@@ -85,7 +86,7 @@ python3 skills/position-sizer/scripts/position_sizer.py \
 ## Commands
 
 ```bash
-# Validate all marked examples (offline, deterministic, stdlib-only).
+# Validate marked examples and root-document script paths (offline, deterministic).
 python3 scripts/check_doc_cli_examples.py validate
 
 # Execute only examples marked `offline ci`, isolated + API keys stripped.
@@ -96,13 +97,11 @@ Exit code is non-zero on any finding or failed execution.
 
 ## Coverage vs. correctness
 
-The gate protects only what is marked. A large number of legacy commands in
-`CLAUDE.md` still reference paths that have moved (for example
-`value-dividend-screener/scripts/...` versus the current
-`skills/<id>/scripts/...`). Those are left unmarked and tracked as a separate
-cleanup effort; marking them would fail validation until the underlying command
-is fixed. The mechanism is ready — new example edits should be marked so they
-are protected immediately.
+The root documents' unmarked bash examples are checked for existing
+repository-relative Python script files. Full option acceptance and optional
+offline execution still require an explicit marker. Other documentation pages
+are unchanged by the path-only pass. Mark new runnable examples when their
+inputs and environment are suitable for the full gate.
 
 ## CI and pre-commit
 

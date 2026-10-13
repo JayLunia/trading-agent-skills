@@ -104,7 +104,7 @@ This path lets you review market conditions, size trades, journal decisions, and
 - `skill-packages/` – Pre-built `.skill` archives ready to upload to Claude's web app **Skills** tab.
 - `docs/` – Documentation site content, generated skill pages, and `docs/dev/metadata-and-workflow-schema.md` (schema spec).
 - `scripts/` – Repository-level automation, including the schema validator and one-shot bootstrap helper.
-- `skillsets/` – Purpose-specific install bundles defining required / recommended / optional skills for major goals (4 core skillsets shipped: market-regime, core-portfolio, swing-opportunity, trade-memory; consumed by the Navigator).
+- `skillsets/` – Purpose-specific install bundles defining required / recommended / optional skills for major goals (5 skillsets shipped: market-regime, core-portfolio, swing-opportunity, trade-memory, strategy-research; consumed by the Navigator).
 
 ## Getting Started
 

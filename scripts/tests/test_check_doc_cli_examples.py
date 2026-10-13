@@ -392,3 +392,112 @@ def test_glob_targets_expand_skills(tmp_path):
     # nonexistent script — the widened targets catch it
     assert any("target file missing" in f.message for f in findings)
     assert any("script does not exist" in f.message for f in findings)
+
+
+def test_unmarked_root_script_paths_checked_in_claude_and_readmes(tmp_path):
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "exists.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "CLAUDE.md").write_text(
+        "Heading\n```bash\npython3 scripts/exists.py\n"
+        "python3 absent-skill/scripts/missing.py\n```\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "README.md").write_text(
+        "```bash\npython scripts/missing-readme.py\n```\n", encoding="utf-8"
+    )
+    (tmp_path / "README.ja.md").write_text("```bash\npython3 scripts/exists.py\n```\n")
+    findings = gate.run_validate(gate.DEFAULT_TARGETS, [], root=tmp_path)
+    assert [(f.file, f.line_no, f.message) for f in findings] == [
+        (
+            str(tmp_path / "CLAUDE.md"),
+            4,
+            "script does not exist: absent-skill/scripts/missing.py",
+        ),
+        (str(tmp_path / "README.md"), 2, "script does not exist: scripts/missing-readme.py"),
+    ]
+
+
+def test_unmarked_gate_ignores_modules_and_external_paths(tmp_path):
+    (tmp_path / "CLAUDE.md").write_text(
+        "```bash\npython3 -m pytest scripts/tests\n"
+        "python3 /opt/vendor/scripts/tool.py\n"
+        "python3 ~/plugins/scripts/tool.py\n"
+        "python3 ../other/scripts/tool.py\n```\n",
+        encoding="utf-8",
+    )
+    assert gate.run_validate(["CLAUDE.md"], [], root=tmp_path) == []
+
+
+def test_unmarked_gate_handles_python_options_and_shell_wrappers(tmp_path):
+    (tmp_path / "CLAUDE.md").write_text(
+        "```bash\n"
+        "echo python3 scripts/display-only.py\n"
+        "python3 -m pytest scripts/tests\n"
+        "python3 -u scripts/missing-u.py && python3 -B scripts/missing-b.py\n"
+        "env MODE=test python3 -I scripts/missing-env.py\n"
+        "env -u FMP_API_KEY python3 scripts/missing-env-unset.py\n"
+        "uv run --locked python3 -X dev scripts/missing-uv.py\n"
+        "```\n",
+        encoding="utf-8",
+    )
+    findings = gate.run_validate(["CLAUDE.md"], [], root=tmp_path)
+    assert [(f.line_no, f.message) for f in findings] == [
+        (4, "script does not exist: scripts/missing-u.py"),
+        (4, "script does not exist: scripts/missing-b.py"),
+        (5, "script does not exist: scripts/missing-env.py"),
+        (6, "script does not exist: scripts/missing-env-unset.py"),
+        (7, "script does not exist: scripts/missing-uv.py"),
+    ]
+
+
+def test_unmarked_gate_resolves_in_root_parent_segments(tmp_path):
+    scripts = tmp_path / "skills" / "demo" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts.parent / "tool.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "CLAUDE.md").write_text(
+        "```bash\n"
+        "python3 skills/demo/scripts/../tool.py\n"
+        "python3 skills/demo/scripts/../../../../outside.py\n"
+        "```\n",
+        encoding="utf-8",
+    )
+    findings = gate.run_validate(["CLAUDE.md"], [], root=tmp_path)
+    assert [(f.line_no, f.message) for f in findings] == [
+        (3, "script escapes root: skills/demo/scripts/../../../../outside.py")
+    ]
+
+
+def test_unmarked_gate_keeps_skip_and_marked_execution_scope(tmp_path):
+    (tmp_path / "CLAUDE.md").write_text(
+        '<!-- exec: skip reason="external" owner="@me" expires=2099-01-01 -->\n'
+        "```bash\npython3 scripts/intentionally-missing.py\n```\n"
+        "```bash\npython3 scripts/also-missing.py\n```\n",
+        encoding="utf-8",
+    )
+    findings = gate.run_validate(["CLAUDE.md"], [], root=tmp_path)
+    assert len(findings) == 1
+    assert findings[0].line_no == 6
+    assert "also-missing.py" in findings[0].message
+    ran, errors = gate.run_execute(["CLAUDE.md"], ci_only=False, root=tmp_path)
+    assert ran == errors == []
+
+
+def test_unmarked_gate_reports_each_command_start_line(tmp_path):
+    (tmp_path / "CLAUDE.md").write_text(
+        "```bash\n"
+        "python3 skills/one/scripts/a.py " + "\\\n"
+        "  --arg value\n"
+        "python3 skills/two/scripts/b.py\n"
+        "```\n",
+        encoding="utf-8",
+    )
+    findings = gate.run_validate(["CLAUDE.md"], [], root=tmp_path)
+    assert [(f.line_no, f.message) for f in findings] == [
+        (2, "script does not exist: skills/one/scripts/a.py"),
+        (4, "script does not exist: skills/two/scripts/b.py"),
+    ]
+
+
+def test_current_default_documented_examples_validate():
+    assert gate.run_validate(gate.DEFAULT_TARGETS, gate.DEFAULT_EN_JA_PAIRS) == []

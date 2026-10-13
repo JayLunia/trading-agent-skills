@@ -5,9 +5,10 @@ Regression gate for stale documented commands (cf. #265 nonexistent
 script, #311 required API key). Enforces, offline and deterministically,
 that examples explicitly marked as executable keep referencing an
 existing script, passing options that the script actually accepts, and
-staying consistent across EN/JA paired pages. Nothing is executed by
-``validate``; optional offline execution lives in the opt-in ``execute``
-subcommand.
+staying consistent across EN/JA paired pages. Unmarked bash examples in
+the three root command documents receive a path-only check. Nothing is
+executed by ``validate``; optional offline execution lives in the opt-in
+``execute`` subcommand.
 
 Marker grammar (HTML comment on the line immediately above a fenced bash
 block; renderer-invisible and outside every generator's fence-capture so
@@ -51,6 +52,7 @@ MARKER_RE = re.compile(r"<!--\s*exec:\s*(.*?)\s*-->")
 VALID_MODES = ("offline", "api", "skip")
 SKIP_KEYS = ("reason", "owner", "expires")
 DEFAULT_TARGETS = ["CLAUDE.md", "README.md", "README.ja.md", "skills/*/SKILL.md"]
+ROOT_DOC_TARGETS = {"CLAUDE.md", "README.md", "README.ja.md"}
 # EN/JA command-parity pairs, ":":-separated file paths relative to ROOT.
 DEFAULT_EN_JA_PAIRS = ["README.md:README.ja.md"]
 # Env vars stripped from any executed example so a CI example cannot reach a
@@ -141,6 +143,135 @@ def scan_targets(paths: list[Path]) -> list[tuple[Path, list[tuple[Marker, str]]
             i += 1
         results.append((path, blocks))
     return results
+
+
+def validate_unmarked_script_paths(path: Path, findings: list[Finding], root: Path = ROOT) -> None:
+    """Check root-relative Python script paths in unmarked bash examples.
+
+    Marked examples keep their existing full validation and optional execution
+    behavior. This pass never executes a command and does not change which
+    blocks participate in EN/JA parity.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    pending: Marker | None = None
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        marker = MARKER_RE.search(lines[i])
+        if marker:
+            pending = _parse_marker(marker.group(1))
+            i += 1
+            continue
+        if stripped.startswith("```") and "bash" in stripped.lstrip("`"):
+            first_line = i + 2
+            fence_lines: list[str] = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith("```"):
+                fence_lines.append(lines[i])
+                i += 1
+            if pending is None:
+                _validate_script_lines(path, fence_lines, first_line, findings, root)
+            pending = None
+            i += 1
+            continue
+        if pending is not None and stripped and not stripped.startswith("#"):
+            pending = None
+        i += 1
+
+
+def _validate_script_lines(
+    path: Path, lines: list[str], first_line: int, findings: list[Finding], root: Path
+) -> None:
+    command = ""
+    command_line = first_line
+    for offset, line in enumerate(lines):
+        stripped = line.rstrip()
+        if not command:
+            command_line = first_line + offset
+        if stripped.endswith("\\"):
+            command += stripped[:-1] + " "
+            continue
+        command += stripped
+        try:
+            lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+            lexer.whitespace_split = True
+            lexer.commenters = "#"
+            tokens = list(lexer)
+        except ValueError:
+            tokens = command.replace("\\", " ").split()
+        segment: list[str] = []
+        for token in [*tokens, ";"]:
+            if token not in (";", "&&", "||", "|", "&"):
+                segment.append(token)
+                continue
+            script = _python_script_operand(segment)
+            segment = []
+            if script is None:
+                continue
+            if script.startswith("./"):
+                script = script[2:]
+            if script.startswith(("/", "~", "$", "<", "..")) or not script.endswith(".py"):
+                continue
+            if not (script.startswith("scripts/") or "/scripts/" in script):
+                continue
+            resolved_root = root.resolve()
+            resolved_script = (root / script).resolve()
+            if not resolved_script.is_relative_to(resolved_root):
+                findings.append(Finding(str(path), command_line, f"script escapes root: {script}"))
+                continue
+            if not resolved_script.is_file():
+                findings.append(
+                    Finding(str(path), command_line, f"script does not exist: {script}")
+                )
+        command = ""
+
+
+def _python_script_operand(tokens: list[str]) -> str | None:
+    """Return a Python script operand from a shell command, not display text."""
+    if not tokens:
+        return None
+    index = 0
+    if tokens[index] == "env":
+        index += 1
+        while index < len(tokens):
+            if tokens[index] in ("-u", "--unset"):
+                index += 2
+            elif tokens[index].startswith("--unset="):
+                index += 1
+            elif tokens[index].startswith("-u") and len(tokens[index]) > 2:
+                index += 1
+            elif tokens[index] in ("-i", "--ignore-environment", "--"):
+                index += 1
+            else:
+                break
+    while index < len(tokens) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[index]):
+        index += 1
+    if tokens[index : index + 2] == ["uv", "run"]:
+        index = next(
+            (
+                pos
+                for pos in range(index + 2, len(tokens))
+                if re.fullmatch(r"python(?:3(?:\.\d+)?)?", tokens[pos])
+            ),
+            len(tokens),
+        )
+    if index >= len(tokens) or not re.fullmatch(r"python(?:3(?:\.\d+)?)?", tokens[index]):
+        return None
+    index += 1
+    while index < len(tokens):
+        option = tokens[index]
+        if option in ("-m", "-c"):
+            return None
+        if option in ("-W", "-X"):
+            index += 2
+            continue
+        if option == "--":
+            return tokens[index + 1] if index + 1 < len(tokens) else None
+        if option.startswith("-"):
+            index += 1
+            continue
+        return option
+    return None
 
 
 def extract_invocations(block: str) -> list[list[str]]:
@@ -433,6 +564,8 @@ def run_validate(targets: list[str], en_ja_pairs: list[str], root: Path = ROOT) 
             continue
         for path_, blocks in scan_targets([path]):
             validate_target(path_, blocks, findings, root=root)
+        if path.relative_to(root).as_posix() in ROOT_DOC_TARGETS:
+            validate_unmarked_script_paths(path, findings, root=root)
     validate_en_ja_pairs(en_ja_pairs, findings, root=root)
     return findings
 

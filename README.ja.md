@@ -103,7 +103,7 @@ FMP / FINVIZ / Alpaca の有料サブスクをまだ持っていない場合は�
 - `skill-packages/` – Claudeウェブアプリの**Skills**タブへそのままアップロードできる`.skill`パッケージ置き場。
 - `docs/` – ドキュメントサイトのコンテンツ、生成済みスキルページ、`docs/dev/metadata-and-workflow-schema.md`（スキーマ仕様書）。
 - `scripts/` – リポジトリ全体の自動化・保守スクリプト。validator や bootstrap helper を含む。
-- `skillsets/` – 目的別のインストール単位。主要 goal ごとに required / recommended / optional skills を定義します（コア 4 skillset 実装済み: market-regime, core-portfolio, swing-opportunity, trade-memory。Navigator が参照）。
+- `skillsets/` – 目的別のインストール単位。主要 goal ごとに required / recommended / optional skills を定義します（5 skillset 実装済み: market-regime, core-portfolio, swing-opportunity, trade-memory, strategy-research。Navigator が参照）。
 
 ## はじめに
 
