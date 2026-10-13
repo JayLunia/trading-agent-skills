@@ -65,6 +65,7 @@ repos:
         language: system
         files: '^(skills/.*|scripts/check_skill_references\.py|scripts/tests/test_check_skill_references\.py|\.pre-commit-config\.yaml)$'
         pass_filenames: false
+        always_run: true
 
       - id: docs-completeness
         name: Check all skills have doc pages

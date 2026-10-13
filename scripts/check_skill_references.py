@@ -15,10 +15,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 # Keep the left boundary: do not extract scripts/foo.py from skills/x/scripts/foo.py.
+# Also skip identifier prefixes such as my_references/, while allowing _emphasis_.
 RESOURCE = re.compile(
-    r"(?<![A-Za-z0-9/.-])(?:\./|(?:\.\./)+)?(?:references|scripts|assets)/"
+    r"(?<![A-Za-z0-9/.-])(?<![A-Za-z0-9]_)(?:\./|(?:\.\./)+)?(?:references|scripts|assets)/"
     r"[^\s`\"'(),;]+"
 )
+# Trailing punctuation, emphasis markers, unmatched closers, and a :line suffix.
+CLOSERS = {"]": "[", ">": "<", "}": "{"}
+LINE_SUFFIX = re.compile(r":\d+(?::\d+)?\Z")
 # These instructions deliberately refer to the central repository, not a bundle.
 REPO_RESOURCES = {
     ("kanchi-dividend-sop", "scripts/run_all_tests.sh"),
@@ -27,22 +31,26 @@ REPO_RESOURCES = {
 }
 
 
+def _trim(token: str, prefix: str) -> str:
+    """Drop prose wrapping after a path. Emphasis is stripped only when the same
+    marker opens earlier on the line, so a trailing glob (scripts/test_*) stays."""
+    while True:
+        trimmed = LINE_SUFFIX.sub("", token.rstrip(".:!?"))
+        marker = trimmed[len(trimmed.rstrip("*_")) :]
+        if marker and marker in prefix:
+            trimmed = trimmed[: -len(marker)]
+        if trimmed and trimmed[-1] in CLOSERS and CLOSERS[trimmed[-1]] not in trimmed:
+            trimmed = trimmed[:-1]
+        if trimmed == token:
+            return token
+        token = trimmed
+
+
 def references(text: str):
     """Yield (line, path) for literal relative resource tokens."""
     for lineno, line in enumerate(text.splitlines(), 1):
         for match in RESOURCE.finditer(line):
-            token = match.group().rstrip(".:!")
-            prefix = line[: match.start()]
-            # Markdown permits angle-enclosed link destinations, not just templates.
-            if prefix.endswith("(<") and token.endswith(">"):
-                token = token[:-1]
-            if prefix.endswith("[") and token.endswith("]") and "[" not in token:
-                token = token[:-1]
-            # Strip only paired Markdown emphasis, preserving true wildcard tokens.
-            for marker in ("**", "__", "*", "_"):
-                if prefix.endswith(marker) and token.endswith(marker):
-                    token = token[: -len(marker)].rstrip(".:!")
-                    break
+            token = _trim(match.group(), line[: match.start()])
             token = token.split("#", 1)[0]
             if token and not any(char in token for char in "*?$%<>{}[]"):
                 yield lineno, token

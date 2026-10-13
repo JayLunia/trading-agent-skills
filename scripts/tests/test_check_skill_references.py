@@ -34,6 +34,14 @@ def skill(tmp_path, text, name="example"):
         "Run ./scripts/missing.py!",
         "Read references/missing.md:",
         "Use assets/missing/",
+        # Emphasis that opens before the path (review of #546).
+        "2. **Read references/missing.md** for the framework",
+        "_Load scripts/missing.py_",
+        "Did you run scripts/missing.py?",
+        "[see scripts/missing.py]",
+        "see <scripts/missing.py>",
+        "{scripts/missing.py}",
+        "`scripts/missing.py:12`",
     ],
 )
 def test_missing_resource_in_each_markdown_context(tmp_path, text):
@@ -58,13 +66,31 @@ def test_existing_files_directories_fragments_and_bold(tmp_path):
     assert checker.check(tmp_path) == []
 
 
+def test_suffixed_forms_of_existing_files_pass(tmp_path):
+    folder = skill(
+        tmp_path,
+        "2. **Read references/guide.md** first\n_Load scripts/run.py_\n"
+        "`scripts/run.py:12`\nsee <scripts/run.py>?\n",
+    )
+    (folder / "references").mkdir()
+    (folder / "references/guide.md").touch()
+    (folder / "scripts").mkdir()
+    (folder / "scripts/run.py").touch()
+    assert checker.check(tmp_path) == []
+
+
+def test_identifier_prefix_is_not_a_resource_reference(tmp_path):
+    skill(tmp_path, "my_references/x.md and data_scripts/run.py")
+    assert checker.check(tmp_path) == []
+
+
 def test_repo_paths_urls_and_templates_are_not_relative_references(tmp_path):
     skill(
         tmp_path,
         "skills/other/scripts/missing.py\n"
         "skills/edge-signal-aggregator/assets/custom_weights.yaml\n"
         "https://example.org/references/missing.md\n"
-        "scripts/*.py\nassets/$NAME.yaml\nscripts/run_{symbol}.py\n"
+        "scripts/*.py\nscripts/test_*\nassets/$NAME.yaml\nscripts/run_{symbol}.py\n"
         "references/guide_<name>.md\nscripts/test_?.py\nscripts/test_[ab].py",
     )
     assert checker.check(tmp_path) == []
@@ -123,6 +149,8 @@ def test_gate_wired_into_ci_and_hook():
     )
     assert hook["entry"] == "python3 scripts/check_skill_references.py"
     assert hook["pass_filenames"] is False
+    # pre-commit omits deleted files, so a commit that only removes a resource must still run.
+    assert hook["always_run"] is True
     import re
 
     for filename in [
