@@ -194,3 +194,108 @@ def test_garp_failure_endpoint_identity_raw_but_diagnostics_masked(tmp_path, mon
     samples = client.diagnostics()["failure_samples"]
     assert samples[-1]["endpoint"].endswith("apikey=REDACTED")
     assert FAKE_KEY not in str(samples)
+
+
+# Include every core client, including the Issue #495 Batch A clients.
+ADDITIONAL_CORE_CLIENTS = [
+    f"skills/{skill}/scripts/fmp_client.py"
+    for skill in (
+        "earnings-calendar",
+        "economic-calendar-fetcher",
+        "institutional-flow-tracker",
+        "cot-contrarian-detector",
+    )
+]
+GENERATED_CLIENTS = ALL_CLIENTS + ADDITIONAL_CORE_CLIENTS
+
+
+@pytest.mark.parametrize("rel_path", GENERATED_CLIENTS)
+@pytest.mark.parametrize("key", ["test_key", "Q"])
+def test_bare_secret_exception_redacted(rel_path, key, tmp_path, monkeypatch, capsys):
+    _mod, client = _make_client(rel_path, tmp_path)
+    client.api_key = key
+
+    def fail(*args, **kwargs):
+        raise requests.ConnectionError(f"proxy echoed {key} twice: {key}")
+
+    monkeypatch.setattr(client.session, "get", fail)
+    request = client._request_json if rel_path == GARP_CLIENT else client._rate_limited_get
+    assert request("https://financialmodelingprep.com/stable/quote", {}) is None
+    captured = capsys.readouterr()
+    assert key not in captured.err + captured.out
+    assert "REDACTED" in captured.err
+    assert captured.out == ""
+    assert key not in str(getattr(client, "_last_error", ""))
+    if rel_path == GARP_CLIENT:
+        assert key not in str(client.diagnostics())
+
+
+@pytest.mark.parametrize("rel_path", [p for p in GENERATED_CLIENTS if p != GARP_CLIENT])
+@pytest.mark.parametrize("prefix_length", [0, 195])
+def test_http_body_redacted_before_truncation(
+    rel_path, prefix_length, tmp_path, monkeypatch, capsys
+):
+    _mod, client = _make_client(rel_path, tmp_path)
+    body = "z" * prefix_length + "test_key" + " suffix test_key"
+    monkeypatch.setattr(client.session, "get", lambda *a, **k: _StubResponse(403, body))
+    assert client._rate_limited_get("https://financialmodelingprep.com/stable/quote", {}) is None
+    captured = capsys.readouterr()
+    # A key crossing the 200-character boundary must leave no partial prefix either.
+    assert "test_" not in captured.err + captured.out
+    assert "test_" not in str(getattr(client, "_last_error", ""))
+    assert captured.out == ""
+
+
+@pytest.mark.parametrize("rel_path", [FAMILY_A[0], FAMILY_A[1]])
+def test_csv_fallback_exception_redacted_without_sending_key(
+    rel_path, tmp_path, monkeypatch, capsys
+):
+    mod, client = _make_client(rel_path, tmp_path)
+
+    def fail(url, **kwargs):
+        assert "financialmodelingprep" not in url
+        assert kwargs == {"timeout": 30}
+        raise requests.ConnectionError("third party echoed test_key")
+
+    monkeypatch.setattr(mod.requests, "get", fail)
+    assert client._fetch_constituents_csv() is None
+    captured = capsys.readouterr()
+    assert "test_key" not in captured.err + captured.out
+    assert "REDACTED" in captured.err
+
+
+@pytest.mark.parametrize(
+    "skill,method",
+    [
+        ("macro-regime-detector", "_get_from_yfinance"),
+        ("market-top-detector", "_get_hist_from_yfinance"),
+    ],
+)
+def test_yfinance_fallback_exception_redacted(skill, method, tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    _mod, client = _make_client(f"skills/{skill}/scripts/fmp_client.py", tmp_path)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("fallback echoed test_key")
+
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=fail, download=fail))
+    assert getattr(client, method)("SPY", 30) is None
+    captured = capsys.readouterr()
+    assert "test_key" not in captured.err + captured.out
+    assert "REDACTED" in captured.err
+
+
+def test_garp_warning_and_diagnostics_redact_bare_url_secret(tmp_path, monkeypatch, capsys):
+    _mod, client = _make_client(GARP_CLIENT, tmp_path)
+    url = "https://financialmodelingprep.com/stable/test_key"
+
+    def fail(*args, **kwargs):
+        raise requests.ConnectionError("test_key")
+
+    monkeypatch.setattr(client.session, "get", fail)
+    assert client._request_json(url, {}) is None
+    captured = capsys.readouterr()
+    assert "test_key" not in captured.err + captured.out
+    assert "test_key" not in str(client.diagnostics())
+    assert client._endpoint_failures[url] == 1  # raw identity still drives circuit breaker
