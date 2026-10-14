@@ -117,8 +117,8 @@ def test_unchanged_countdown_suppressed(monkeypatch):
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("status", ["expired", "active"])
-def test_expiration_and_recovery_update(monkeypatch, status):
+def test_recovery_update(monkeypatch):
+    status = "active"
     body = monitor.alert_body(report(), "owner")
     calls = fake_api(monkeypatch, [[{"id": 42, "user": {"login": monitor.BOT}, "body": body}]])
     assert monitor.notify(report(status), "owner/repo") == "updated"
@@ -206,3 +206,66 @@ def test_workflow_uv_options_are_accepted_by_uv():
         options = argv[: argv.index("python")] if "python" in argv else argv
         result = subprocess.run([*options, "--help"], capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("change", ["expired", "new", "renewed"])
+def test_escalation_creates_fresh_mention(monkeypatch, change):
+    old = monitor.alert_body(report(), "owner")
+    current = report("expired") if change == "expired" else report()
+    if change == "new":
+        current["exceptions"].append({**current["exceptions"][0], "id": "other"})
+    elif change == "renewed":
+        current["exceptions"][0]["expires_on"] = "2027-02-01"
+    calls = fake_api(monkeypatch, [[{"id": 42, "user": {"login": monitor.BOT}, "body": old}]])
+    assert monitor.notify(current, "owner/repo") == "created"
+    assert [call[1].get("method") for call in calls] == [None, "PATCH", "POST"]
+    assert calls[1][1]["body"].startswith(monitor.SUPERSEDED_MARKER)
+    assert not calls[1][1]["body"].startswith(monitor.MARKER)
+    assert "@owner" not in calls[1][1]["body"]
+    assert "@owner" in calls[2][1]["body"]
+
+
+def test_prose_and_row_order_do_not_realert(monkeypatch):
+    current = report()
+    current["exceptions"].append({**current["exceptions"][0], "id": "other"})
+    old = monitor.alert_body(current, "owner").replace("require action", "need attention")
+    current["exceptions"].reverse()
+    calls = fake_api(monkeypatch, [[{"id": 42, "user": {"login": monitor.BOT}, "body": old}]])
+    assert monitor.notify(current, "owner/repo") == "updated"
+    assert calls[1][1]["method"] == "PATCH"
+
+
+@pytest.mark.parametrize("failed_method", ["PATCH", "POST"])
+def test_escalation_failure_retries_without_duplicate(monkeypatch, failed_method):
+    comments = [
+        {"id": 42, "user": {"login": monitor.BOT}, "body": monitor.alert_body(report(), "owner")}
+    ]
+    methods = []
+    fail_once = True
+
+    def api(endpoint, **kwargs):
+        nonlocal fail_once
+        if kwargs.get("paginate"):
+            return [[dict(comment) for comment in comments]]
+        method = kwargs["method"]
+        methods.append(method)
+        if method == failed_method and fail_once:
+            fail_once = False
+            raise subprocess.CalledProcessError(1, ["gh"])
+        if method == "PATCH":
+            comments[0]["body"] = kwargs["body"]
+        else:
+            comments.append({"id": 43, "user": {"login": monitor.BOT}, "body": kwargs["body"]})
+        return {}
+
+    monkeypatch.setattr(monitor, "gh_api", api)
+    with pytest.raises(subprocess.CalledProcessError):
+        monitor.notify(report("expired"), "owner/repo")
+    if failed_method == "PATCH":
+        assert methods == ["PATCH"]
+        assert comments[0]["body"].startswith(monitor.MARKER)
+    else:
+        assert comments[0]["body"].startswith(monitor.SUPERSEDED_MARKER)
+    assert monitor.notify(report("expired"), "owner/repo") == "created"
+    assert sum(c["body"].startswith(monitor.MARKER) for c in comments) == 1
+    assert monitor.notify(report("expired"), "owner/repo") == "unchanged"

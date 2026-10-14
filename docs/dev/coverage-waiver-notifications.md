@@ -2,7 +2,7 @@
 
 The daily `coverage-waiver-expiry.yml` workflow reports coverage waivers (including
 the aggregate waiver) and allowed test failures from `config/ci-test-policy.yaml`.
-It updates one GitHub Actions bot comment on Issue #523 and mentions the repository
+It maintains one active GitHub Actions bot comment on Issue #523 and mentions the repository
 owner when an exception is within 14 days of expiry, including day 14 and day 0.
 Expiry day remains valid; an exception becomes expired the following UTC day.
 The existing CI policy remains fail-closed and is not relaxed by this monitor.
@@ -15,7 +15,14 @@ each expiry, remaining days and status. Invalid policies produce no new artifact
 
 The managed comment uses a stable marker and bot author, paginates existing
 comments, and suppresses unchanged alerts. A daily countdown does not trigger an
-update. Changes to the alert set, expiry dates, expiration state or recovery do.
+update. A new alert identity (kind, ID, expiry date, tracking issue) or a transition
+from EXPIRING to EXPIRED retires the active comment with a distinct superseded
+marker, then posts a fresh owner mention. Superseded comments remain as history
+without an owner mention. Wording, row order, removals and recovery only PATCH the
+active comment. This avoids relying on edited mentions to trigger notifications.
+If retiring the comment fails, no POST occurs. If the subsequent POST fails, the
+workflow fails and the next run retries creation because no active comment remains.
+Multiple active managed comments still require manual reconciliation.
 Concurrency serializes scheduled and manual runs. Recovery updates an existing
 comment without creating a new comment when no alert has ever occurred.
 

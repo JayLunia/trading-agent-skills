@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.ci_test_matrix import ROOT, MatrixError, exception_expiry_report, load_policy
 
 MARKER = "<!-- coverage-waiver-expiry-523 -->"
+SUPERSEDED_MARKER = "<!-- coverage-waiver-expiry-523-superseded -->"
 ISSUE = 523
 BOT = "github-actions[bot]"
 
@@ -65,6 +66,27 @@ def gh_api(endpoint: str, *, body: str | None = None, method: str = "GET", pagin
     return json.loads(result.stdout)
 
 
+def alert_states(body: str) -> dict[tuple[str, str, str, str], str]:
+    """Read stable alert rows, independently of surrounding prose and row order."""
+    return {
+        (kind, identifier, expiry, issue): state
+        for state, kind, identifier, expiry, issue in re.findall(
+            r"^- (EXPIRING|EXPIRED): `([^`]+)` / `([^`]+)` expires "
+            r"(\d{4}-\d{2}-\d{2}) \(tracking #(\d+)\)\.$",
+            body,
+            re.MULTILINE,
+        )
+    }
+
+
+def needs_new_alert(previous: str, current: str) -> bool:
+    old = alert_states(previous)
+    return any(
+        identity not in old or (state == "EXPIRED" and old[identity] != "EXPIRED")
+        for identity, state in alert_states(current).items()
+    )
+
+
 def notify(report: dict, repo: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9_.-]+", repo):
         raise ValueError("repository must be owner/name")
@@ -90,8 +112,18 @@ def notify(report: dict, repo: str) -> str:
     if existing and existing["body"] == body:
         return "unchanged"
     if existing:
-        gh_api(f"repos/{repo}/issues/comments/{existing['id']}", body=body, method="PATCH")
-        return "updated"
+        if not needs_new_alert(existing["body"], body):
+            gh_api(f"repos/{repo}/issues/comments/{existing['id']}", body=body, method="PATCH")
+            return "updated"
+        # Retire first: if POST fails, the next run retries with no active comment.
+        # A failed PATCH aborts before POST, preserving the duplicate guard.
+        superseded = existing["body"].replace(MARKER, SUPERSEDED_MARKER, 1)
+        superseded = superseded.replace(f"@{owner}", owner)
+        gh_api(
+            f"repos/{repo}/issues/comments/{existing['id']}",
+            body=superseded + "\n\nSuperseded by a subsequent expiry alert.",
+            method="PATCH",
+        )
     gh_api(f"repos/{repo}/issues/{ISSUE}/comments", body=body, method="POST")
     return "created"
 
