@@ -549,3 +549,80 @@ def test_run_validate_absolute_target_outside_root_does_not_crash(tmp_path):
 
 def test_current_default_documented_examples_validate():
     assert gate.run_validate(gate.DEFAULT_TARGETS, gate.DEFAULT_EN_JA_PAIRS) == []
+
+
+def test_shell_shapes_and_output(tmp_path):
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts/ok.py").write_text("pass\n")
+    for fence in ("bash", "sh", "shell", "console"):
+        for wrapper in ("", "$ ", "sudo ", "time ", "nohup ", "sudo time nohup "):
+            prompt = "$ " if fence == "console" and not wrapper.startswith("$") else ""
+            (tmp_path / "CLAUDE.md").write_text(
+                f"```{fence}\n{prompt}{wrapper}python3 scripts/ok.py\n"
+                f"{prompt}{wrapper}uv run --with pkg scripts/missing.py\n```\n"
+            )
+            findings = gate.run_validate(["CLAUDE.md"], [], root=tmp_path)
+            assert len(findings) == 1, (fence, wrapper, findings)
+    (tmp_path / "CLAUDE.md").write_text(
+        "```console\npython3 scripts/output.py\n$ python3 scripts/ok.py\n```\n"
+        "```notbash\npython3 scripts/display.py\n```\n"
+    )
+    assert gate.run_validate(["CLAUDE.md"], [], root=tmp_path) == []
+
+
+def test_cd_and_directory_context(tmp_path):
+    for cd in ("cd subdir", "sudo cd subdir", "time cd subdir"):
+        (tmp_path / "CLAUDE.md").write_text(
+            f"```sh\n{cd} && python3 scripts/wrong-root.py\npython3 scripts/later.py\n```\n"
+        )
+        assert gate.run_validate(["CLAUDE.md"], [], root=tmp_path) == []
+    (tmp_path / "CLAUDE.md").write_text(
+        "```sh\nuv run --directory subdir scripts/missing.py\n"
+        "uv run --directory=subdir scripts/missing.py\n"
+        "uv run --project subdir scripts/checked.py\n```\n"
+    )
+    findings = gate.run_validate(["CLAUDE.md"], [], root=tmp_path)
+    assert [f.message for f in findings] == ["script does not exist: scripts/checked.py"]
+
+
+def test_heredoc_bodies_and_resume(tmp_path):
+    for delimiter in ("EOF", "'EOF'", '"EOF"', "-EOF"):
+        body_prefix = "\t" if delimiter.startswith("-") else ""
+        (tmp_path / "CLAUDE.md").write_text(
+            f"```shell\ncat <<{delimiter}\n{body_prefix}python3 scripts/body.py\n"
+            f"{body_prefix}EOF\npython3 scripts/after.py\n```\n"
+        )
+        findings = gate.run_validate(["CLAUDE.md"], [], root=tmp_path)
+        assert [f.message for f in findings] == ["script does not exist: scripts/after.py"]
+
+
+def test_console_continuation_and_literal_heredoc(tmp_path):
+    (tmp_path / "CLAUDE.md").write_text(
+        "```console\n$ uv run --with pkg \\\n  scripts/missing.py\n"
+        '$ echo "<<" EOF\n$ python3 scripts/after.py\n```\n'
+    )
+    findings = gate.run_validate(["CLAUDE.md"], [], root=tmp_path)
+    assert len(findings) == 2
+
+
+def test_quoted_heredoc_dash_and_tab_modifier(tmp_path):
+    for opener, end in (
+        ("<<-'EOF'", "\tEOF"),
+        ("<<- 'EOF'", "\tEOF"),
+        ("<<'-EOF'", "-EOF"),
+        ("<< -EOF", "-EOF"),
+    ):
+        (tmp_path / "CLAUDE.md").write_text(
+            f"```sh\ncat {opener}\npython3 scripts/body.py\n{end}\npython3 scripts/after.py\n```\n"
+        )
+        findings = gate.run_validate(["CLAUDE.md"], [], root=tmp_path)
+        assert [f.message for f in findings] == ["script does not exist: scripts/after.py"]
+
+
+def test_non_shell_fence_and_cd_arguments(tmp_path):
+    (tmp_path / "CLAUDE.md").write_text(
+        "````text\n```sh\npython3 scripts/display.py\n```\n````\n"
+        '```sh\necho time cd subdir\necho "start;cd subdir;end"\npython3 scripts/missing.py\n```\n'
+    )
+    findings = gate.run_validate(["CLAUDE.md"], [], root=tmp_path)
+    assert [f.message for f in findings] == ["script does not exist: scripts/missing.py"]

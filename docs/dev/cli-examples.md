@@ -15,11 +15,15 @@ the regressions described in issue #336:
 The full script-and-option gate is opt-in through an HTML `<!-- exec: ... -->`
 comment. In the three root command-reference files (`CLAUDE.md`, `README.md`,
 and `README.ja.md`), `validate` also checks repository-relative Python script
-paths in unmarked fenced bash examples. That path-only check does not run the
+paths in unmarked fenced `bash`, `sh`, `shell`, and `console` examples. That path-only check does not run the
 examples or validate their options. A valid `skip` marker exempts its block.
 Because the path-only check resolves paths from the repository root, examples
-that use placeholders such as `skills/<skill-name>/...` or a preceding `cd`
-must carry a valid `<!-- exec: skip ... -->` marker.
+that use placeholders such as `skills/<skill-name>/...` must carry a valid `<!-- exec: skip ... -->` marker. After `cd`, the rest
+of that block is skipped because its working directory is unknown. Heredoc
+bodies are ignored. `console` blocks check only `$ ` prompt commands (including
+continuations). Simple `sudo`, `time`, and `nohup` wrappers are accepted.
+`uv run --directory` commands are skipped; `--project` retains the root context.
+These rules apply to unmarked path checks; marked execution remains bash-only.
 
 ## Targets
 
@@ -100,7 +104,7 @@ Exit code is non-zero on any finding or failed execution.
 
 ## Coverage vs. correctness
 
-The root documents' unmarked bash examples are checked for existing
+The root documents' unmarked shell examples are checked for existing
 repository-relative Python script files. Full option acceptance and optional
 offline execution still require an explicit marker. Other documentation pages
 are unchanged by the path-only pass. Mark new runnable examples when their

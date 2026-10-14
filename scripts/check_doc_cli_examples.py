@@ -162,15 +162,23 @@ def validate_unmarked_script_paths(path: Path, findings: list[Finding], root: Pa
             pending = _parse_marker(marker.group(1))
             i += 1
             continue
-        if stripped.startswith("```") and "bash" in stripped.lstrip("`"):
+        fence = re.fullmatch(r"(`{3,}|~{3,})([^`~]*)", stripped)
+        if fence:
+            fence_chars, language = fence.groups()
+            language = language.strip()
             first_line = i + 2
             fence_lines: list[str] = []
             i += 1
-            while i < len(lines) and not lines[i].strip().startswith("```"):
+            while i < len(lines) and not re.fullmatch(
+                re.escape(fence_chars[0]) + "{" + str(len(fence_chars)) + r",}\s*",
+                lines[i].strip(),
+            ):
                 fence_lines.append(lines[i])
                 i += 1
-            if pending is None:
-                _validate_script_lines(path, fence_lines, first_line, findings, root)
+            if pending is None and language in {"bash", "sh", "shell", "console"}:
+                _validate_script_lines(
+                    path, fence_lines, first_line, findings, root, console=language == "console"
+                )
             pending = None
             i += 1
             continue
@@ -180,22 +188,71 @@ def validate_unmarked_script_paths(path: Path, findings: list[Finding], root: Pa
 
 
 def _validate_script_lines(
-    path: Path, lines: list[str], first_line: int, findings: list[Finding], root: Path
+    path: Path,
+    lines: list[str],
+    first_line: int,
+    findings: list[Finding],
+    root: Path,
+    console: bool = False,
 ) -> None:
     command = ""
     command_line = first_line
+    heredocs: list[tuple[str, bool]] = []
     for offset, line in enumerate(lines):
+        if heredocs:
+            delimiter, tabs = heredocs[0]
+            if (line.lstrip("\t") if tabs else line) == delimiter:
+                heredocs.pop(0)
+            continue
         stripped = line.rstrip()
         if not command:
+            if console and not stripped.lstrip().startswith("$ "):
+                continue
+            stripped = stripped.lstrip()
+            if stripped.startswith("$ "):
+                stripped = stripped[2:]
             command_line = first_line + offset
         if stripped.endswith("\\"):
             command += stripped[:-1] + " "
             continue
         command += stripped
+        # Tokenize redirections so quoted text containing << is not a heredoc.
+        try:
+            normalized = re.sub(
+                r'"(?:\\.|[^"\\])*"|\'[^\']*\'|(?P<tabs><<-)',
+                lambda match: "<< __HEREDOC_TABS__ " if match.group("tabs") else match[0],
+                command,
+            )
+            lexer = shlex.shlex(normalized, posix=False, punctuation_chars="<>&;|")
+            lexer.whitespace_split = True
+            lexer.commenters = "#"
+            tokens = list(lexer)
+        except ValueError:
+            tokens = []
+        for index, token in enumerate(tokens[:-1]):
+            if token == "<<":
+                raw = tokens[index + 1]
+                tabs = raw == "__HEREDOC_TABS__"
+                if tabs:
+                    if index + 2 >= len(tokens):
+                        continue
+                    raw = tokens[index + 2]
+                delimiter = shlex.split(raw)[0]
+                heredocs.append((delimiter, tabs))
+        # A cd changes the base for this command and all later block lines.
+        words: list[str] = []
+        for token in [*tokens, ";"]:
+            if token not in {";", "&&", "||", "|", "&"}:
+                words.append(token)
+                continue
+            while words and words[0] in {"sudo", "time", "nohup"}:
+                words.pop(0)
+            if words and words[0] == "cd":
+                return
+            words = []
         _validate_script_command(path, command, command_line, findings, root)
         command = ""
     if command:
-        # The block ended on a trailing continuation; still validate it.
         _validate_script_command(path, command, command_line, findings, root)
 
 
@@ -256,6 +313,12 @@ def _python_script_operand(tokens: list[str]) -> str | None:
     if not tokens:
         return None
     index = 0
+    if tokens[index] == "$":
+        index += 1
+    while index < len(tokens) and tokens[index] in {"sudo", "time", "nohup"}:
+        index += 1
+    if index >= len(tokens):
+        return None
     if tokens[index] == "env":
         index += 1
         while index < len(tokens):
@@ -274,6 +337,8 @@ def _python_script_operand(tokens: list[str]) -> str | None:
     if tokens[index : index + 2] == ["uv", "run"]:
         index += 2
         while index < len(tokens) and tokens[index].startswith("-"):
+            if tokens[index] == "--directory" or tokens[index].startswith("--directory="):
+                return None
             if tokens[index] in _UV_RUN_VALUE_OPTIONS:
                 index += 2
             else:
