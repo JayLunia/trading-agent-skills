@@ -199,6 +199,7 @@ ACTIVE・PARTIALLY_CLOSEDのメモリ残数量を、
 - `skills/portfolio-manager/references/diversification-principles.md`
 - `skills/portfolio-manager/references/portfolio-risk-metrics.md`
 - `skills/portfolio-manager/references/position-evaluation.md`
+- `skills/portfolio-manager/references/position-reconciliation.md`
 - `skills/portfolio-manager/references/rebalancing-strategies.md`
 - `skills/portfolio-manager/references/risk-profile-questionnaire.md`
 - `skills/portfolio-manager/references/target-allocations.md`

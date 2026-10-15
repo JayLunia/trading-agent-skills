@@ -188,9 +188,6 @@ JSON and Markdown reports. Stop allocation and rebalance review when
 unresolved. This offline manual gate does not authorize orders or modify theses;
 automatic exports and replay enforcement remain follow-up work under #493.
 
-**Output Format:**
-```markdown
-
 ---
 
 ## 6. Resources
@@ -202,6 +199,7 @@ automatic exports and replay enforcement remain follow-up work under #493.
 - `skills/portfolio-manager/references/diversification-principles.md`
 - `skills/portfolio-manager/references/portfolio-risk-metrics.md`
 - `skills/portfolio-manager/references/position-evaluation.md`
+- `skills/portfolio-manager/references/position-reconciliation.md`
 - `skills/portfolio-manager/references/rebalancing-strategies.md`
 - `skills/portfolio-manager/references/risk-profile-questionnaire.md`
 - `skills/portfolio-manager/references/target-allocations.md`
