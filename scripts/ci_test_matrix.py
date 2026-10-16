@@ -802,9 +802,11 @@ def exception_expiry_report(policy: TestPolicy, today: date) -> list[dict[str, o
 
 
 def _expiry_message(row: dict[str, object]) -> str:
+    days = row["days_remaining"]
+    remaining = "expires today" if days == 0 else f"{days} day{'s' if days != 1 else ''} remaining"
     return (
         f"{row['kind'].replace('_', ' ')} {row['id']} (#{row['issue']}) expires on "
-        f"{row['expires_on']} ({row['days_remaining']} days remaining)"
+        f"{row['expires_on']} ({remaining})"
     )
 
 

@@ -1043,3 +1043,21 @@ def test_locked_versions_never_raises(tmp_path):
     assert locked_versions(tmp_path) == {}
     (tmp_path / "uv.lock").write_text("not [valid toml", encoding="utf-8")
     assert locked_versions(tmp_path) == {}
+
+
+@pytest.mark.parametrize(
+    ("days", "expected"),
+    [(0, "expires today"), (1, "1 day remaining"), (2, "2 days remaining")],
+)
+@pytest.mark.parametrize("on_github", [False, True])
+def test_expiry_warning_remaining_days(monkeypatch, capsys, days, expected, on_github):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true" if on_github else "false")
+    today = date(2026, 12, 1)
+    policy = _expiry_policy(
+        aggregate_expires=None, waiver_expires=date.fromordinal(today.toordinal() + days)
+    )
+    _emit_expiry_warnings(exception_expiry_report(policy, today), sys.stderr)
+    warning = capsys.readouterr().err
+    assert f"({expected})" in warning
+    assert "0 days remaining" not in warning
+    assert "1 days remaining" not in warning

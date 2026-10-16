@@ -78,7 +78,7 @@ the expiry date, so every `ci_test_matrix.py` command would have failed from
 CI runs (Ubuntu/Python 3.10): 38043262308, 37331242157 and 37257679899.
 
 - The aggregate waiver is retired (`aggregate_coverage.waiver: null`). The
-  repository aggregate measured 77.60%, 78.18% and 78.22% in those runs, at or
+  repository aggregate measured 78.22%, 78.18% and 77.60% in those runs, at or
   above the 75% target each time, so the effective floor is the target.
   PR-head Coverage run: recorded in the pull request. The waiver removal is
   valid only if that run also reports at least 75% with `effective_floor` 75.
