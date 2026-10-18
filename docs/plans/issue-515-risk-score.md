@@ -38,3 +38,23 @@ examples. Corrected all claims and rebuilt the package. Round 3 approved with no
 unresolved material findings. Full skill suite: 229 passed; targeted additions: 11
 passed. Scoped Ruff passes. Standard generated/metadata checks pass after removing
 an unrelated duplicate Stockbee catalog row produced by the docs generator.
+
+## Existing PR CI repair (2026-10-17)
+
+Prioritized PR #574 over new Issue work: workflow replay and repo-scripts failed
+because the full-path market-regime golden lacked four new interpretation fields.
+Coverage explicitly blocked on the failed repo-scripts row, rather than a measured
+coverage threshold failure. Regenerated the replay in a temporary directory;
+whole-tree comparison found only `03_top_risk_report.json` drift. Updated that
+single golden with `calibrated_probability`, `interpretation`, `score_kind`, and
+`score_version`; all numbers, exposure decisions, and other outputs are unchanged.
+
+Repair plan review: one round, incorporated whole-tree/numeric invariance and
+Coverage-log checks. Repair implementation review: one round, no findings.
+Validation: Python 3.12 locked dev/ci environment, 256 targeted tests passed;
+full workflow replay check passed; scoped Ruff, all standard generated metadata
+checks, pre-commit all-files, and diff checks passed. Python 3.9 replay execution
+is unsupported by existing Path.write_text(newline=...) usage; initial Python 3.12
+run needed the locked pyarrow dependency before the full replay tests passed.
+Full repository matrix is deferred to GitHub CI for this golden-only repair.
+Refs #515 remains open; no new PR or merge.
