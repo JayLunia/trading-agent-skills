@@ -43,7 +43,7 @@ before making calibration claims. No measured calibration results are supplied.
 - ディフェンシブセクターがグロースをアウトパフォーム
 - 先導株が崩れ始めているが指数はまだ持ちこたえている
 - エクスポージャー縮小のタイミング判断
-- 今後2〜8週間の調整確率を評価したい
+- 今後2〜8週間の調整リスクを評価したい
 
 ## Prerequisites
 
