@@ -2339,13 +2339,16 @@ def _market_composite(scorer: Any, kind: str, fixture: Mapping[str, Any]) -> dic
     return composite
 
 
+MARKET_PROVENANCE_RUN_ID = "fictional-market-regime-daily-run-001"
+
+
 def _market_analysis(
     scorer: Any,
     kind: str,
     fixture: Mapping[str, Any],
     fixed_timestamp: str,
 ) -> dict[str, Any]:
-    return {
+    result = {
         "schema_version": 1,
         "metadata": {
             "generated_at": fixed_timestamp,
@@ -2368,6 +2371,23 @@ def _market_analysis(
         },
     }
 
+    if kind in {"breadth", "uptrend"}:
+        contract = _load_module_from_path(
+            REPO_ROOT / "skills" / "exposure-coach" / "scripts" / "provenance_contract.py",
+            "market_provenance_contract",
+        )
+        result["data_provenance"] = contract.build_provenance(
+            provider="fictional-fixture",
+            endpoint=f"market-regime-{kind}-component-fixture",
+            retrieved_at=fixed_timestamp,
+            as_of=fixture["as_of"],
+            run_id=MARKET_PROVENANCE_RUN_ID,
+        )
+        result["data_provenance"]["scope"] = (
+            "fictional component fixture only; provider fetch not executed"
+        )
+    return result
+
 
 def _validate_market_report(
     payload: Any,
@@ -2379,7 +2399,8 @@ def _validate_market_report(
     payload = _require_mapping_keys(
         payload,
         label=f"{kind} market artifact",
-        required={"schema_version", "metadata", "composite", "components", "provenance"},
+        required={"schema_version", "metadata", "composite", "components", "provenance"}
+        | ({"data_provenance"} if kind in {"breadth", "uptrend"} else set()),
     )
     expected = _market_analysis(scorer, kind, fixture, fixed_timestamp)
     _assert_finite_json(payload, f"{kind} market artifact")
@@ -2457,7 +2478,7 @@ def _expected_exposure_decision(
     bias = module.determine_bias("Unknown", scores["theme"], None, None)
     participation = module.determine_participation(scores["uptrend"], scores["breadth"], None)
     confidence = module.determine_confidence(provided, missing)
-    return {
+    result = {
         "schema_version": "1.0",
         "generated_at": fixed_timestamp,
         "exposure_ceiling_pct": module.determine_exposure_ceiling(composite),
@@ -2475,6 +2496,15 @@ def _expected_exposure_decision(
             composite, recommendation, participation, bias, scores, missing
         ),
     }
+
+    result["input_lineage"] = module.validate_market_inputs(
+        consumed_payloads.get("market_breadth_report"),
+        consumed_payloads.get("uptrend_report"),
+        run_id=MARKET_PROVENANCE_RUN_ID,
+        evaluation=fixed_timestamp,
+        max_age_days=3,
+    )
+    return result
 
 
 def _market_regime_exposure(
@@ -2524,7 +2554,18 @@ def _market_regime_exposure(
     ]
     if "top_risk_report" in consumed:
         command.extend(["--top-risk", str(Path(consumed["top_risk_report"]["files"]["canonical"]))])
-    command.extend(["--output-dir", str(reports), "--json-only"])
+    command.extend(
+        [
+            "--output-dir",
+            str(reports),
+            "--json-only",
+            "--require-provenance",
+            "--run-id",
+            MARKET_PROVENANCE_RUN_ID,
+            "--as-of",
+            spec["fixed_timestamp"],
+        ]
+    )
     _run_cli(command, repo_root)
     source = _latest_report(reports, "exposure_posture_*.json")
     actual = _load_json(source, "exposure decision")
