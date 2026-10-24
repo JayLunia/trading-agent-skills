@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import stat
 import sys
 from pathlib import Path
@@ -18,6 +19,16 @@ from package_skills import (  # noqa: E402
     package_skill,
     should_include,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_from_hook_git_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pre-push hooks export GIT_DIR/GIT_INDEX_FILE; without this scrub the
+    fixture's ``git init``/``git add`` (and package_skills' ``git ls-files``)
+    act on the real repository instead of the temp repo -- rewriting its index
+    and flipping ``core.bare`` (mirrors test_check_doc_cli_examples)."""
+    for key in [k for k in os.environ if k.startswith("GIT_")]:
+        monkeypatch.delenv(key, raising=False)
 
 
 def test_should_include_excludes_tests_and_local_artifacts() -> None:
