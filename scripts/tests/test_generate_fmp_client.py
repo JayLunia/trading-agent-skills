@@ -35,6 +35,19 @@ GENERATED_SKILLS = {
     "economic-calendar-fetcher",
     "institutional-flow-tracker",
     "cot-contrarian-detector",
+    # Issue #495 Batch C: stockbee family (stable-only primitives).
+    "stockbee-20pct-study",
+    "stockbee-episodic-pivot-analyzer",
+    "stockbee-exhaustion-hammer-screener",
+    "stockbee-momentum-burst-screener",
+    "stockbee-setup-fluency-trainer",
+}
+STOCKBEE_SKILLS = {
+    "stockbee-20pct-study",
+    "stockbee-episodic-pivot-analyzer",
+    "stockbee-exhaustion-hammer-screener",
+    "stockbee-momentum-burst-screener",
+    "stockbee-setup-fluency-trainer",
 }
 NO_COMPAT_SKILLS = {
     "value-dividend-screener",
@@ -49,6 +62,8 @@ NO_COMPAT_SKILLS = {
     "economic-calendar-fetcher",
     "institutional-flow-tracker",
     "cot-contrarian-detector",
+    # Batch C rows target /stable endpoints 1:1.
+    *STOCKBEE_SKILLS,
 }
 NO_BUDGET_FAMILY_B = {
     "value-dividend-screener",
@@ -302,3 +317,21 @@ def test_batch_b_timeout_option_is_scoped_to_new_targets(gen):
         elif cfg.family != "special":
             assert "timeout=self.timeout" not in output
             assert "timeout=30" in output
+
+
+def test_stockbee_stable_extension_is_scoped_to_stockbee_clients(gen):
+    for skill, cfg in _skills(gen).items():
+        out = gen.render_fmp_client(cfg)
+        if skill in STOCKBEE_SKILLS:
+            assert cfg.extensions == ("stockbee_stable",)
+            assert "def fetch_eod_rows" in out
+            assert "def fetch_screener_rows" in out
+            assert "def fetch_quote_row" in out
+            # No circuit breaker inside the extension block.
+            block = out.split("def _stable_rows", 1)[1]
+            assert "_record_endpoint_failure" not in block
+            assert "_disabled_endpoints" not in block
+        else:
+            assert "stockbee_stable" not in cfg.extensions
+            assert "def fetch_eod_rows" not in out
+            assert "def _stable_rows" not in out

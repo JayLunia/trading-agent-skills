@@ -311,3 +311,32 @@ SKILLS: dict[str, SkillConfig] = {
         extensions=("dividend_stable",),
     ),
 }
+
+
+def _stockbee(skill: str, hist_days: int) -> SkillConfig:
+    """Issue #495 Batch C: budgeted family-B core + stable-only stockbee primitives."""
+    return SkillConfig(
+        skill=skill,
+        title=f"FMP API Client for {skill}",
+        family="B",
+        has_quote=False,
+        budget=True,
+        hist_days=hist_days,
+        hist_return_list=True,
+        has_compat=False,
+        feature_lines=("- Stable-only screener/EOD/quote primitives for stockbee adapters",),
+        class_constants=(("STABLE_URL", '"https://financialmodelingprep.com/stable"'),),
+        extensions=("stockbee_stable",),
+    )
+
+
+# ---- Issue #495 Batch C (stockbee family) ----
+for _cfg in (
+    _stockbee("stockbee-20pct-study", 320),
+    _stockbee("stockbee-episodic-pivot-analyzer", 90),
+    _stockbee("stockbee-exhaustion-hammer-screener", 120),
+    _stockbee("stockbee-momentum-burst-screener", 80),
+    _stockbee("stockbee-setup-fluency-trainer", 80),
+):
+    SKILLS[_cfg.skill] = _cfg
+del _cfg

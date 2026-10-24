@@ -1794,7 +1794,7 @@ skills:
   - id: fmp
     type: market_data
     requirement: optional
-    note: Optional OHLCV/profile enrichment via Financial Modeling Prep
+    note: Optional OHLCV enrichment via Financial Modeling Prep
   - id: local_calculation
     type: calculation
     requirement: not_required
