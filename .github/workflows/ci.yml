@@ -266,8 +266,8 @@ jobs:
         run: python3 scripts/generate_fmp_client.py --check
 
       # 5b. Provider response contract check (Issue #332): validates
-      # config/provider-contracts/fmp/*.v*.json structure + fixtures against
-      # the generated fmp_client.py owners in skills-index.yaml. Offline —
+      # config/provider-contracts/{fmp,trader-monty}/*.v*.json structure + fixtures
+      # against the owners in skills-index.yaml. Offline —
       # the orchestration environment is installed from uv.lock.
       - name: Provider contract check
         run: python3 scripts/check_provider_contracts.py check
