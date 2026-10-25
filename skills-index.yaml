@@ -15,7 +15,7 @@ skills:
   status: production
   verification:
     instruction_contract: not_verified
-    unit_tests: not_verified
+    unit_tests: passed
     workflow_contract: not_verified
     end_to_end_replay: not_verified
     data_provenance: not_verified
@@ -80,7 +80,7 @@ skills:
   status: production
   verification:
     instruction_contract: not_verified
-    unit_tests: not_verified
+    unit_tests: passed
     workflow_contract: not_verified
     end_to_end_replay: not_verified
     data_provenance: not_verified
@@ -430,7 +430,7 @@ skills:
   status: production
   verification:
     instruction_contract: not_verified
-    unit_tests: not_verified
+    unit_tests: passed
     workflow_contract: not_verified
     end_to_end_replay: not_verified
     data_provenance: not_verified
@@ -512,7 +512,7 @@ skills:
   status: production
   verification:
     instruction_contract: not_verified
-    unit_tests: not_verified
+    unit_tests: passed
     workflow_contract: not_verified
     end_to_end_replay: not_verified
     data_provenance: not_verified
@@ -825,7 +825,7 @@ skills:
   status: production
   verification:
     instruction_contract: not_verified
-    unit_tests: not_verified
+    unit_tests: passed
     workflow_contract: not_verified
     end_to_end_replay: not_verified
     data_provenance: not_verified
@@ -1019,7 +1019,7 @@ skills:
   status: production
   verification:
     instruction_contract: not_verified
-    unit_tests: not_verified
+    unit_tests: passed
     workflow_contract: passed
     end_to_end_replay: passed
     data_provenance: not_verified
@@ -1079,7 +1079,7 @@ skills:
   status: production
   verification:
     instruction_contract: not_verified
-    unit_tests: not_verified
+    unit_tests: passed
     workflow_contract: not_verified
     end_to_end_replay: not_verified
     data_provenance: not_verified
@@ -1233,7 +1233,7 @@ skills:
   status: production
   verification:
     instruction_contract: not_verified
-    unit_tests: not_verified
+    unit_tests: passed
     workflow_contract: not_verified
     end_to_end_replay: not_verified
     data_provenance: not_verified
@@ -1370,7 +1370,7 @@ skills:
   status: production
   verification:
     instruction_contract: not_verified
-    unit_tests: not_verified
+    unit_tests: passed
     workflow_contract: not_verified
     end_to_end_replay: not_verified
     data_provenance: not_verified
@@ -1433,7 +1433,7 @@ skills:
   status: production
   verification:
     instruction_contract: not_verified
-    unit_tests: not_verified
+    unit_tests: passed
     workflow_contract: passed
     end_to_end_replay: passed
     data_provenance: not_verified
@@ -1954,7 +1954,7 @@ skills:
   status: production
   verification:
     instruction_contract: not_verified
-    unit_tests: not_verified
+    unit_tests: passed
     workflow_contract: not_verified
     end_to_end_replay: not_verified
     data_provenance: not_verified
@@ -2091,7 +2091,7 @@ skills:
   status: production
   verification:
     instruction_contract: not_verified
-    unit_tests: not_verified
+    unit_tests: passed
     workflow_contract: passed
     end_to_end_replay: passed
     data_provenance: not_verified
