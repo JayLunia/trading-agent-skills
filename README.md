@@ -1,8 +1,10 @@
-# Claude Trading Skills
+# Trading Agent Skills
 
-Claude Trading Skills started as a personal project to use AI to improve my own trading process.
+An independent fork of [TraderMonty's Claude Trading Skills](https://github.com/tradermonty/claude-trading-skills), adapted to make its open-source trading workflows easier to use across AI agents.
 
-Claude Trading Skills is a Claude Skills-based trading workflow toolkit for time-constrained individual investors.
+The upstream project provides 74 focused skills for individual investors and traders: market analysis, screening, portfolio review, trade planning, risk checks, journaling, and strategy research. Skills use the open `SKILL.md` format where supported. Install them in Claude, Codex, GitHub Copilot, Cursor, or Gemini CLI using the [multi-agent installation guide](docs/agent-compatibility.md).
+
+This fork preserves the upstream MIT license and credits. It is not an investment adviser, signal service, or automated trading system. Agent-format compatibility does not guarantee that every skill's integrations or scripts work unchanged in every agent.
 
 It is designed for investors who use long-term investing, ETFs, and dividend stocks as their core, while using disciplined swing trading as a satellite strategy when market conditions are favorable.
 
@@ -12,7 +14,7 @@ This is not a signal service or a promise of profitability. It is a toolkit for 
 
 The project follows a **first for self, open for others** stance: it is built first as a practical workflow the author uses, then shared openly for others who face similar constraints.
 
-📖 **Documentation site:** <https://tradermonty.github.io/claude-trading-skills/>
+📖 **Install across agents:** [Agent compatibility and setup](docs/agent-compatibility.md) · **Upstream documentation:** <https://tradermonty.github.io/claude-trading-skills/>
 
 **Project vision:** [`PROJECT_VISION.md`](PROJECT_VISION.md)
 
@@ -105,6 +107,10 @@ This path lets you review market conditions, size trades, journal decisions, and
 - `docs/` – Documentation site content, generated skill pages, and `docs/dev/metadata-and-workflow-schema.md` (schema spec).
 - `scripts/` – Repository-level automation, including the schema validator and one-shot bootstrap helper.
 - `skillsets/` – Purpose-specific install bundles defining required / recommended / optional skills for major goals (5 skillsets shipped: market-regime, core-portfolio, swing-opportunity, trade-memory, strategy-research; consumed by the Navigator).
+
+## Use with Other Agents
+
+The skills share a common `SKILL.md` source. Follow the [multi-agent installation guide](docs/agent-compatibility.md) for the correct directory or install command for Codex, GitHub Copilot, Cursor, Gemini CLI, and Claude. Runtime features such as MCP integrations, browser tools, and Claude-specific scripts may need agent-specific setup.
 
 ## Getting Started
 
