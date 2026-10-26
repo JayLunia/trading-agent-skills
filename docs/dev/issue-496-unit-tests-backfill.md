@@ -22,9 +22,10 @@ whose per-skill evidence is individually recorded in each override rationale. Wa
 - the collector's raw output never stamps reviewer confirmation: the
 `schema_conformance_confirmed_by_reviewer` flag is False by default and the per-skill deep
 review that confirms each schema claim is recorded in the override rationale instead.
-- `exit 0` in the recorded baseline commands is the observed exit code notation from the
-original backfill, not a shell prefix; pasting the command into a shell will report the row's
-actual exit code instead.
+- Recorded commands preserve the actual install/run status (`install && run`), without
+an unconditional `exit 0`. The collector stops before running a row if installation fails.
+A `passed` proposal requires successful installation and execution for the skill row and,
+when repo-level tests are mapped, the repo-scripts row. Missing exit evidence yields a gap.
 
 Outcome: **12 skills marked `passed`** (index + same-commit baseline override with
 per-skill rationale), **47 skills remain `not_verified` with a documented gap**, and 3 skills

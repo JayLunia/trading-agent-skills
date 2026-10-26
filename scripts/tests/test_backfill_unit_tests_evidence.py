@@ -277,3 +277,69 @@ def test_main_skips_repo_row_without_repo_level_mapping(tmp_path: Path, monkeypa
     )
     run(mod, ["--skill", "position-sizer"], tmp_path / "reports_no_repo")
     assert repo_calls == [], "repo-scripts row must not run when mapping has no repo-level tests"
+
+
+@pytest.mark.parametrize(
+    ("skill_result", "repo_result", "expected_gap"),
+    [
+        ({"install_exit": 1, "run_exit": 0}, {"install_exit": 0, "run_exit": 0}, True),
+        ({"install_exit": 0, "run_exit": 0}, {"install_exit": 1, "run_exit": 0}, True),
+        ({"install_exit": 0, "run_exit": 0}, {"install_exit": 0, "run_exit": 1}, True),
+        ({"install_exit": 0, "run_exit": 0}, {}, True),
+        ({"run_exit": 0}, {"install_exit": 0, "run_exit": 0}, True),
+        ({"install_exit": 0, "run_exit": 0}, {"install_exit": 0, "run_exit": 0}, False),
+    ],
+)
+def test_proposal_requires_successful_install_and_all_mapped_rows(
+    tmp_path, monkeypatch, skill_result, repo_result, expected_gap
+):
+    mod = load_module()
+    monkeypatch.setattr(mod, "run_row", lambda *a, **k: dict(skill_result))
+    monkeypatch.setattr(mod, "repo_scripts_row_check", lambda: dict(repo_result))
+    monkeypatch.setattr(
+        mod,
+        "propose_mapping",
+        lambda scripts, locations: (
+            {str(scripts[0]): ["scripts/tests/test_provider_contracts.py"]},
+            [],
+        ),
+    )
+    monkeypatch.setattr(
+        mod,
+        "signals",
+        lambda *a, **k: ({"fail_closed_signal": True, "schema_conformance_signal": True}, []),
+    )
+    item = run(mod, ["--skill", "position-sizer"], tmp_path / "report")["results"][0]
+    assert item["proposed_value"] == ("gap" if expected_gap else "passed")
+    assert bool(item["gap_reasons"]) == expected_gap
+
+
+def test_run_row_stops_after_install_failure(tmp_path, monkeypatch):
+    mod = load_module()
+    calls = []
+
+    def failed_install(cmd, **kwargs):
+        calls.append(cmd)
+        return mod.subprocess.CompletedProcess(cmd, 1, "", "install failed")
+
+    monkeypatch.setattr(mod.subprocess, "run", failed_install)
+    result = mod.run_row("position-sizer")
+    assert len(calls) == 1
+    assert result["install_exit"] == 1
+    assert result["run_exit"] is None
+    assert "; exit" not in result["recorded_command"]
+
+
+def test_run_row_records_actual_check_command(monkeypatch):
+    mod = load_module()
+    calls = []
+
+    def success(cmd, **kwargs):
+        calls.append(cmd)
+        return mod.subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(mod.subprocess, "run", success)
+    result = mod.run_row("repo-scripts", check_only=True)
+    assert len(calls) == 2
+    assert "--check &&" in result["recorded_command"]
+    assert "; exit" not in result["recorded_command"]

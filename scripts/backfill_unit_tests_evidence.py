@@ -182,7 +182,7 @@ def signals(
 
 
 def run_row(entry_id: str, check_only: bool = False) -> dict[str, object]:
-    results: dict[str, object] = {}
+    results: dict[str, object] = {"run_exit": None}
     install_cmd = [sys.executable, "scripts/ci_test_matrix.py", "install", entry_id]
     if check_only:
         install_cmd.append("--check")
@@ -195,9 +195,12 @@ def run_row(entry_id: str, check_only: bool = False) -> dict[str, object]:
         except OSError as exc:  # pragma: no cover - defensive
             results[f"{label}_exit"] = 127
             results[f"{label}_stderr_tail"] = str(exc)
+        if label == "install" and results["install_exit"] != 0:
+            break
+    check_flag = " --check" if check_only else ""
     results["recorded_command"] = (
-        f"python3 scripts/ci_test_matrix.py install {entry_id} && "
-        f"python3 scripts/ci_test_matrix.py run {entry_id}; exit {results['run_exit']}"
+        f"python3 scripts/ci_test_matrix.py install {entry_id}{check_flag} && "
+        f"python3 scripts/ci_test_matrix.py run {entry_id}"
     )
     return results
 
@@ -269,8 +272,15 @@ def main(argv: list[str] | None = None) -> int:
             reasons.append("no test modules proposed for any executable script")
         if args.skip_run:
             reasons.append("test execution skipped (--skip-run); exit status not recorded")
-        elif row and row.get("run_exit") != 0:
-            reasons.append("recorded ci_test_matrix row did not exit 0")
+        else:
+            if row.get("install_exit") != 0:
+                reasons.append("recorded ci_test_matrix install did not exit 0")
+            if row.get("run_exit") != 0:
+                reasons.append("recorded ci_test_matrix row did not exit 0")
+            if mapped_repo_level:
+                repo_row = row.get("repo_scripts_row", {})
+                if repo_row.get("install_exit") != 0 or repo_row.get("run_exit") != 0:
+                    reasons.append("mapped repo-scripts install/run did not both exit 0")
         if mapping and not sig["fail_closed_signal"]:
             reasons.append("no assertion-shaped error-path/fail-closed test among mapped tests")
         if mapping and not sig["schema_conformance_signal"]:
