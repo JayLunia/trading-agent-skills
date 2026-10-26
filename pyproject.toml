@@ -10,7 +10,7 @@ packages = []
 name = "claude-trading-skills"
 version = "0.1.0"
 description = "Claude Skills for equity investors and traders"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "jsonschema>=4.25.1",
     "packaging>=24.0",
@@ -32,9 +32,8 @@ dev = [
     "detect-secrets>=1.5.0",
     "codespell>=2.3.0",
     "pre-commit>=3.0.0",
-    "tomli>=2.0; python_version < '3.11'",
-    "pip-audit==2.10.1; python_version >= '3.10'",
-    "bandit[toml]>=1.9.0; python_version >= '3.10'",
+    "pip-audit==2.10.1",
+    "bandit[toml]>=1.9.0",
 ]
 ci = [
     "beautifulsoup4",
@@ -50,7 +49,7 @@ ci = [
 line-length = 100
 target-version = "py39"
 # Standalone packaged skills retain Python 3.9 source compatibility even though
-# the repository's shared locked development environment starts at Python 3.10.
+# the repository's shared locked development environment starts at Python 3.11.
 extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
