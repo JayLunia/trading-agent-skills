@@ -1,4 +1,4 @@
-# Issue #496 step 1 — `unit_tests` verification backfill (assessed 2026-10-25)
+# Issue #496 step 1 — `unit_tests` verification backfill (assessed 2026-10-26)
 
 Assessed commit convention: `assessed_commit` pins `52c93232...`, the last revision common
 to origin/main and this PR branch (an ancestor of the PR head, reachable after squash-merge;
@@ -17,8 +17,8 @@ produced output keys / schema file can source the `output-schema conformance` an
 only and are never cited as schema evidence.
 `passed` is claimed for exactly the skills whose mapped test set demonstrates, per skill
 (individually recorded rationale in the baseline override): the skill's own produced-output
-key/schema assertions, a real error-path/fail-closed test, and demo-level happy-path/boundary
-fixture coverage in the suite-level assumptions only. Watch-outs:
+key/schema assertions, a real error-path/fail-closed test, and happy-path/boundary coverage
+whose per-skill evidence is individually recorded in each override rationale. Watch-outs:
 - the collector's raw output never stamps reviewer confirmation: the
 `schema_conformance_confirmed_by_reviewer` flag is False by default and the per-skill deep
 review that confirms each schema claim is recorded in the override rationale instead.
