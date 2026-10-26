@@ -22,10 +22,14 @@ anomaly/severity table, and the manual fixture-refresh procedure.
 
 from __future__ import annotations
 
+import csv
+import io
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS_DIR = ROOT / "config" / "provider-contracts"
@@ -44,6 +48,12 @@ class ContractLoadError(Exception):
 # severity FATAL is present" — a DEPRECATION-only result is still ok=True.
 FATAL = "fatal"
 DEPRECATION = "deprecation"
+
+# Public CSV contracts (format == "csv"). The canary performs one keyless GET
+# per contract, so the URL host is restricted to an allowlist.
+CSV_ALLOWED_HOSTS = frozenset({"tradermonty.github.io", "raw.githubusercontent.com"})
+DEFAULT_CSV_MAX_BYTES = 2 * 1024 * 1024
+CONTRACT_FORMATS = ("json", "csv")
 
 _APIKEY_RE = re.compile(r"([?&](?:apikey|api_key)=)[^&\s]+", re.IGNORECASE)
 
@@ -87,6 +97,24 @@ class RowValidation:
     def deprecations(self) -> list[Anomaly]:
         return [a for a in self.anomalies if a.severity == DEPRECATION]
 
+    def summarized(self, severity: str | None = None) -> list[dict[str, Any]]:
+        """Unique ``(code, severity)`` pairs with a ``count``, in first-seen order.
+
+        ``validate_rows`` emits one anomaly per offending row; a 30k-row CSV
+        with one renamed column would otherwise produce 30k identical entries.
+        The canary and summary use this deduplicated form. ``severity`` limits
+        the result to FATAL or DEPRECATION entries.
+        """
+        counts: dict[tuple[str, str], int] = {}
+        for anomaly in self.anomalies:
+            if severity is not None and anomaly.severity != severity:
+                continue
+            key = (anomaly.code, anomaly.severity)
+            counts[key] = counts.get(key, 0) + 1
+        return [
+            {"code": code, "severity": sev, "count": count} for (code, sev), count in counts.items()
+        ]
+
 
 @dataclass
 class Contract:
@@ -109,6 +137,18 @@ class Contract:
     known_gaps: list[dict[str, Any]]
     non_empty: dict[str, Any]
     fixture: list[dict[str, Any]]
+    # --- public CSV contracts (all default to the FMP/JSON shape) ---
+    format: str = "json"
+    url: str = ""
+    max_bytes: Any = None  # raw JSON value; validated by validate_contract_file
+    required_values: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def effective_max_bytes(self) -> int:
+        """Body-size cap for a CSV fetch (decompressed bytes)."""
+        if isinstance(self.max_bytes, int) and not isinstance(self.max_bytes, bool):
+            return self.max_bytes
+        return DEFAULT_CSV_MAX_BYTES
 
 
 def _type_name(value: Any) -> str:
@@ -149,6 +189,10 @@ def _contract_from_data(file_path: Path, data: dict[str, Any]) -> Contract:
         known_gaps=list(data.get("known_gaps") or []),
         non_empty=dict(data.get("non_empty") or {}),
         fixture=list(data.get("fixture") or []),
+        format=data.get("format", "json"),
+        url=str(data.get("url", "") or ""),
+        max_bytes=data.get("max_bytes"),
+        required_values=data.get("required_values") or {},
     )
 
 
@@ -188,6 +232,64 @@ def load_contracts(root: Path | str | None = None) -> dict[str, Contract]:
     return contracts
 
 
+def _validate_format_keys(contract: Contract, label: str) -> list[str]:
+    """Check the ``format`` / ``url`` / ``max_bytes`` / ``required_values`` keys."""
+    errors: list[str] = []
+    fmt = contract.format
+    if fmt not in CONTRACT_FORMATS:
+        errors.append(f"{label}: format must be one of {list(CONTRACT_FORMATS)} (got {fmt!r})")
+        return errors
+
+    if fmt == "json":
+        if contract.url:
+            errors.append(f"{label}: url is only allowed on csv contracts")
+        if contract.max_bytes is not None:
+            errors.append(f"{label}: max_bytes is only allowed on csv contracts")
+    else:
+        errors.extend(_validate_csv_url(contract, label))
+        max_bytes = contract.max_bytes
+        if max_bytes is not None and (
+            isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0
+        ):
+            errors.append(f"{label}: max_bytes must be a positive integer (got {max_bytes!r})")
+
+    required_values = contract.required_values
+    if not isinstance(required_values, dict):
+        errors.append(f"{label}: required_values must be an object of column -> list of values")
+        return errors
+    for column, values in required_values.items():
+        if not isinstance(values, list) or not values:
+            errors.append(f"{label}: required_values['{column}'] must be a non-empty list")
+        if column not in contract.required_fields:
+            errors.append(f"{label}: required_values column '{column}' is not in required_fields")
+    return errors
+
+
+def _validate_csv_url(contract: Contract, label: str) -> list[str]:
+    errors: list[str] = []
+    if contract.query:
+        errors.append(f"{label}: csv contracts must have an empty query (use the url path only)")
+    if not contract.url:
+        errors.append(f"{label}: csv contracts require a url")
+        return errors
+    parts = urlsplit(contract.url)
+    if parts.scheme != "https":
+        errors.append(f"{label}: url scheme must be https (got {parts.scheme!r})")
+    if parts.hostname not in CSV_ALLOWED_HOSTS or parts.netloc != parts.hostname:
+        errors.append(
+            f"{label}: url host must be one of {sorted(CSV_ALLOWED_HOSTS)} with no "
+            f"port or credentials (got {parts.netloc!r})"
+        )
+    if parts.query or parts.fragment:
+        errors.append(f"{label}: url must not carry a query string or fragment")
+    if contract.endpoint_path != parts.path:
+        errors.append(
+            f"{label}: path must equal the url path ({parts.path!r}, got "
+            f"{contract.endpoint_path!r})"
+        )
+    return errors
+
+
 def validate_contract_file(contract: Contract, skills_index_ids: Any) -> list[str]:
     """Static/structural checks on one contract file (no network, no rows-vs-live).
 
@@ -215,6 +317,8 @@ def validate_contract_file(contract: Contract, skills_index_ids: Any) -> list[st
     for owner in contract.owners:
         if owner not in known_ids:
             errors.append(f"{label}: owner '{owner}' is not a skill in skills-index.yaml")
+
+    errors.extend(_validate_format_keys(contract, label))
 
     if not contract.fixture:
         errors.append(f"{label}: fixture must have at least one row")
@@ -251,6 +355,7 @@ def validate_rows(contract: Contract, rows: Any) -> RowValidation:
     ``empty_response``, ``not_a_list``, ``row_not_object``,
     ``missing_required_field:<f>``, ``null_required_field:<f>``,
     ``wrong_type:<f>:<got>``, ``all_null_required_field:<f>``,
+    ``missing_required_value:<col>=<val>`` (a ``required_values`` entry no row carries),
     ``invalid_contract_rule:<f>:reject_all_null`` and ``canonical_absent_legacy_present:<legacy>-><canonical>``
     are FATAL; ``legacy_alias_present:<legacy>` is a non-fatal DEPRECATION.
     """
@@ -320,4 +425,66 @@ def validate_rows(contract: Contract, rows: Any) -> RowValidation:
             if legacy_key in row and canonical and canonical in row:
                 anomalies.append(Anomaly(f"legacy_alias_present:{legacy_key}", DEPRECATION))
 
+    # A key-value CSV (e.g. Metric,Value) can lose a consumer-read row while
+    # every remaining row is valid; each required value must appear somewhere.
+    required_values = contract.required_values if isinstance(contract.required_values, dict) else {}
+    for column, values in required_values.items():
+        for value in values if isinstance(values, list) else []:
+            if not any(isinstance(row, dict) and row.get(column) == value for row in rows):
+                anomalies.append(Anomaly(f"missing_required_value:{column}={value}", FATAL))
+
     return RowValidation(anomalies)
+
+
+_CSV_EXTRA_KEY = "\x00extra_cells"
+_INT_RE = re.compile(r"^[+-]?\d+$")
+_FLOAT_RE = re.compile(
+    r"^[+-]?(?:\d+\.\d*(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+[eE][+-]?\d+)$"
+)
+
+
+def _coerce_cell(cell: str | None) -> Any:
+    """Coerce one CSV cell: empty -> None, bool/int/float literals, else the string.
+
+    ``nan`` / ``inf`` / non-finite literals stay strings on purpose: the
+    breadth consumer rejects them, so a numeric column holding one must show
+    up as ``wrong_type`` rather than pass as a float.
+    """
+    if cell is None:
+        return None
+    text = cell.strip()
+    if text == "":
+        return None
+    lowered = text.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    if _INT_RE.match(text):
+        return int(text)
+    if _FLOAT_RE.match(text):
+        value = float(text)
+        return value if math.isfinite(value) else cell
+    return cell
+
+
+def parse_csv_rows(text: str) -> tuple[list[dict[str, Any]], list[Anomaly]]:
+    """Parse CSV text into coerced rows plus parse-level anomalies (stdlib ``csv``).
+
+    Strips a UTF-8 BOM, reads the header, and coerces each cell with
+    ``_coerce_cell``. A short row maps its missing cells to ``None``. A row
+    with extra cells yields one FATAL ``extra_cells`` anomaly and keeps only
+    the header keys, so no ``None`` key ever reaches ``validate_rows``.
+    A header-only (or empty) body returns ``[]``.
+    """
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    reader = csv.DictReader(io.StringIO(text), restkey=_CSV_EXTRA_KEY)
+    rows: list[dict[str, Any]] = []
+    anomalies: list[Anomaly] = []
+    for raw in reader:
+        if _CSV_EXTRA_KEY in raw:
+            anomalies.append(Anomaly("extra_cells", FATAL))
+            raw.pop(_CSV_EXTRA_KEY)
+        rows.append({key: _coerce_cell(value) for key, value in raw.items()})
+    return rows, anomalies
